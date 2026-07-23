@@ -1,0 +1,23 @@
+.env
+.env.*
+!.env.example
+
+# Go build output
+bin/
+tmp/
+*.exe
+*.test
+*.out
+.coverprofile
+.gocache
+
+# Dependency / module cache if created locally
+pkg/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
