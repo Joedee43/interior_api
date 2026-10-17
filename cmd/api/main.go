@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Joedee43/interior_api/internal/auth"
 	"github.com/Joedee43/interior_api/internal/config"
 	"github.com/Joedee43/interior_api/internal/httpapi"
 	"github.com/Joedee43/interior_api/internal/postgres"
@@ -53,7 +54,18 @@ func run() error {
 	defer pool.Close()
 	log.Info("database connected")
 
-	router := httpapi.NewRouter(httpapi.Deps{Logger: log, DB: pool})
+	authSvc, err := auth.NewService(pool, auth.NewPasswordHasher(auth.DefaultArgon2Params), cfg.SessionTTL)
+	if err != nil {
+		return err
+	}
+	authHandler := auth.NewHandler(authSvc, auth.CookieConfig{Secure: cfg.CookieSecure()}, auth.DefaultLimits())
+
+	router := httpapi.NewRouter(httpapi.Deps{
+		Logger:         log,
+		DB:             pool,
+		AllowedOrigins: cfg.AllowedOrigins,
+		V1Routes:       []func(*gin.RouterGroup){authHandler.Mount},
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.Addr(),

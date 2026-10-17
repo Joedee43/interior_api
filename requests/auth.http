@@ -1,0 +1,36 @@
+# Manual API checks. Works with the VS Code "REST Client" extension
+# (click "Send Request"), and maps 1:1 onto Postman/Bruno requests.
+# Cookies are kept between requests automatically, so run them in order.
+
+@base = http://localhost:5050
+
+### Register a company + its first admin (logs you in)
+POST {{base}}/v1/auth/register-company
+Content-Type: application/json
+
+{
+  "company_name": "Demo Furniture",
+  "company_slug": "demo-furniture",
+  "full_name": "Demo Admin",
+  "email": "demo@example.com",
+  "password": "demo password 123"
+}
+
+### Who am I?
+GET {{base}}/v1/auth/me
+
+### Log in (rotates the session cookie)
+POST {{base}}/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "demo@example.com",
+  "password": "demo password 123"
+}
+
+### Log out
+POST {{base}}/v1/auth/logout
+
+### A foreign site trying to call us -> 403 forbidden_origin
+POST {{base}}/v1/auth/logout
+Origin: https://evil.example

@@ -32,6 +32,29 @@ func TestFromLookup_Defaults(t *testing.T) {
 	if cfg.Addr() != ":5050" {
 		t.Errorf("Addr() = %q, want :5050", cfg.Addr())
 	}
+	if cfg.SessionTTL != 7*24*time.Hour {
+		t.Errorf("SessionTTL = %v, want 168h", cfg.SessionTTL)
+	}
+	if len(cfg.AllowedOrigins) != 1 || cfg.AllowedOrigins[0] != "http://localhost:5173" {
+		t.Errorf("AllowedOrigins = %v, want [http://localhost:5173]", cfg.AllowedOrigins)
+	}
+	if cfg.CookieSecure() {
+		t.Error("CookieSecure() = true in development, want false")
+	}
+}
+
+func TestFromLookup_AllowedOrigins(t *testing.T) {
+	cfg, err := FromLookup(lookupFrom(map[string]string{
+		"DATABASE_URL":    "x",
+		"ALLOWED_ORIGINS": " https://app.example.com , http://localhost:5173 ,",
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"https://app.example.com", "http://localhost:5173"}
+	if len(cfg.AllowedOrigins) != 2 || cfg.AllowedOrigins[0] != want[0] || cfg.AllowedOrigins[1] != want[1] {
+		t.Errorf("AllowedOrigins = %v, want %v", cfg.AllowedOrigins, want)
+	}
 }
 
 func TestFromLookup_Overrides(t *testing.T) {
@@ -74,6 +97,16 @@ func TestFromLookup_Invalid(t *testing.T) {
 			name:    "bad duration",
 			env:     map[string]string{"DATABASE_URL": "x", "HTTP_READ_TIMEOUT": "fast"},
 			wantErr: []string{"HTTP_READ_TIMEOUT"},
+		},
+		{
+			name:    "origin with path",
+			env:     map[string]string{"DATABASE_URL": "x", "ALLOWED_ORIGINS": "http://localhost:5173/"},
+			wantErr: []string{"ALLOWED_ORIGINS"},
+		},
+		{
+			name:    "origin without scheme",
+			env:     map[string]string{"DATABASE_URL": "x", "ALLOWED_ORIGINS": "localhost:5173"},
+			wantErr: []string{"ALLOWED_ORIGINS"},
 		},
 		{
 			name:    "reports every problem at once",

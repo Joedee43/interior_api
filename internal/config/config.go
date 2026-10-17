@@ -6,8 +6,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -28,7 +30,15 @@ type Config struct {
 	Port        string
 	DatabaseURL string
 	HTTP        HTTPConfig
+	SessionTTL  time.Duration
+	// AllowedOrigins are browser origins allowed to make state-changing
+	// requests (CSRF defence), e.g. the SvelteKit dev server.
+	AllowedOrigins []string
 }
+
+// CookieSecure reports whether cookies must carry the Secure flag. Only
+// production is assumed to be served over HTTPS.
+func (c Config) CookieSecure() bool { return c.Env == EnvProduction }
 
 // HTTPConfig holds http.Server timeouts. Without them a slow or malicious
 // client can hold a connection (and a goroutine) open indefinitely.
@@ -92,6 +102,22 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 			IdleTimeout:       duration("HTTP_IDLE_TIMEOUT", 60*time.Second),
 			ShutdownTimeout:   duration("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
 		},
+		SessionTTL: duration("SESSION_TTL", 7*24*time.Hour),
+	}
+
+	for _, raw := range strings.Split(get("ALLOWED_ORIGINS", "http://localhost:5173"), ",") {
+		origin := strings.TrimSpace(raw)
+		if origin == "" {
+			continue
+		}
+		// An origin is exactly scheme://host[:port] — no path, no trailing
+		// slash — because that is what browsers send in the Origin header.
+		u, err := url.Parse(origin)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" || u.RawQuery != "" {
+			errs = append(errs, fmt.Errorf("ALLOWED_ORIGINS: %q must look like https://example.com or http://localhost:5173", origin))
+			continue
+		}
+		cfg.AllowedOrigins = append(cfg.AllowedOrigins, origin)
 	}
 
 	switch cfg.Env {
