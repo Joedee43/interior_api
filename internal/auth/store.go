@@ -13,7 +13,8 @@ import (
 )
 
 // Store functions are unexported: only Service calls them, and Service is
-// the package's public API.
+// the package's public API. They take a postgres.DBTX so Service can run
+// them inside a caller's transaction (see InsertUser, StartSession).
 
 const userColumns = `id, email, full_name, status, is_platform_admin, created_at, updated_at`
 
@@ -101,7 +102,7 @@ func sessionPrincipal(ctx context.Context, db postgres.DBTX, tokenHash []byte) (
 	var p Principal
 	var lastSeen time.Time
 	err := db.QueryRow(ctx, `
-		SELECT s.id, s.user_id, s.last_seen_at
+		SELECT s.id, s.user_id, u.is_platform_admin, s.last_seen_at
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash = $1
@@ -109,7 +110,7 @@ func sessionPrincipal(ctx context.Context, db postgres.DBTX, tokenHash []byte) (
 		  AND s.expires_at > now()
 		  AND u.status = 'active'`,
 		tokenHash,
-	).Scan(&p.SessionID, &p.UserID, &lastSeen)
+	).Scan(&p.SessionID, &p.UserID, &p.IsPlatformAdmin, &lastSeen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Principal{}, time.Time{}, ErrUnauthenticated
 	}

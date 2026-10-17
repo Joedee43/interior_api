@@ -1,14 +1,17 @@
-// Package company owns tenants (companies) and who belongs to them
-// (memberships). Store functions take a postgres.DBTX so callers such as
-// auth.Service can run them inside a wider transaction.
+// Package company owns tenants (companies), who belongs to them
+// (memberships) and company-scoped authorization. It builds on auth for
+// identity; auth never imports company.
 package company
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Joedee43/interior_api/internal/auth"
 )
 
 const (
@@ -23,7 +26,18 @@ const (
 	MemberDisabled = "disabled"
 )
 
-var ErrSlugTaken = errors.New("company slug already taken")
+var (
+	ErrSlugTaken = errors.New("company slug already taken")
+	// ErrNotFound means "no such company, or you cannot see it". The two
+	// are deliberately indistinguishable so IDs cannot be probed.
+	ErrNotFound       = errors.New("company not found")
+	ErrMemberNotFound = errors.New("member not found")
+	// ErrForbidden means a member of the company without the needed role.
+	ErrForbidden = errors.New("insufficient company role")
+	// ErrLastAdmin protects the invariant "an active company always has at
+	// least one active admin".
+	ErrLastAdmin = errors.New("cannot remove the last active company admin")
+)
 
 type Company struct {
 	ID        string
@@ -34,20 +48,25 @@ type Company struct {
 	UpdatedAt time.Time
 }
 
-type Membership struct {
+// Member is the authorized actor for company-scoped requests: who is
+// acting, in which company, with which role. Every service method that
+// touches company data takes one and scopes its SQL by Member.CompanyID.
+type Member struct {
 	CompanyID string
 	UserID    string
 	Role      string
-	Status    string
-	CreatedAt time.Time
 }
 
-// UserMembership is a membership seen from the user's side, with the
-// company it points to — what /auth/me returns.
-type UserMembership struct {
-	Company Company
-	Role    string
-	Status  string
+func (m Member) IsAdmin() bool { return m.Role == RoleAdmin }
+
+// MemberInfo is a membership joined with the user it belongs to.
+type MemberInfo struct {
+	UserID    string
+	Email     string
+	FullName  string
+	Role      string
+	Status    string
+	CreatedAt time.Time
 }
 
 // slugPattern must match companies_slug_check in migration 00003.
@@ -73,4 +92,41 @@ func ValidateName(name string) string {
 		return "must be 2 to 100 characters"
 	}
 	return ""
+}
+
+func validateRole(role string) string {
+	if role != RoleAdmin && role != RoleStaff {
+		return "must be company_admin or company_staff"
+	}
+	return ""
+}
+
+func validateMemberStatus(status string) string {
+	if status != MemberActive && status != MemberDisabled {
+		return "must be active or disabled"
+	}
+	return ""
+}
+
+// ---- request context ----------------------------------------------------
+
+type memberKey struct{}
+
+// WithMember stores the authorized Member on ctx (done by RequireMember).
+func WithMember(ctx context.Context, m Member) context.Context {
+	return context.WithValue(ctx, memberKey{}, m)
+}
+
+// MemberFrom returns the Member stored by RequireMember. Later domain
+// packages (catalog, designs) use it to scope their own queries.
+func MemberFrom(ctx context.Context) (Member, bool) {
+	m, ok := ctx.Value(memberKey{}).(Member)
+	return m, ok
+}
+
+func toAuthMembership(c Company, role, status string) auth.Membership {
+	return auth.Membership{
+		CompanyID: c.ID, CompanyName: c.Name, CompanySlug: c.Slug, CompanyStatus: c.Status,
+		Role: role, Status: status,
+	}
 }

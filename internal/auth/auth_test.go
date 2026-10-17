@@ -45,42 +45,31 @@ func TestValidatePassword_CountsCharactersNotBytes(t *testing.T) {
 	}
 }
 
-func TestRegisterCompanyInput_Validate(t *testing.T) {
-	valid := RegisterCompanyInput{
-		CompanyName: "Acme Furniture",
-		CompanySlug: "acme-furniture",
-		FullName:    "Abebe Kebede",
-		Email:       "abebe@acme.com",
-		Password:    "a long enough password",
-	}
-	if err := valid.validate(); err != nil {
+func TestNewUserInput_Validate(t *testing.T) {
+	valid := NewUserInput{FullName: "Abebe Kebede", Email: "abebe@acme.com", Password: "a long enough password"}
+	p := Problems{}
+	valid.Validate(p)
+	if err := p.Err(); err != nil {
 		t.Fatalf("valid input rejected: %v", err)
 	}
 
-	in := RegisterCompanyInput{CompanySlug: "Bad Slug!", Email: "nope", Password: "short"}
-	in.normalize()
-	err := in.validate()
+	p = Problems{}
+	NewUserInput{Email: "nope", Password: "short"}.Validate(p)
 	var verr *ValidationError
-	if !errors.As(err, &verr) {
+	if err := p.Err(); !errors.As(err, &verr) {
 		t.Fatalf("want *ValidationError, got %v", err)
 	}
-	for _, f := range []string{"company_name", "company_slug", "full_name", "email", "password"} {
+	for _, f := range []string{"full_name", "email", "password"} {
 		if _, ok := verr.Fields[f]; !ok {
 			t.Errorf("missing validation error for %s (got %v)", f, verr.Fields)
 		}
 	}
 }
 
-func TestRegisterCompanyInput_Normalize(t *testing.T) {
-	in := RegisterCompanyInput{
-		CompanyName: "  Acme  ",
-		CompanySlug: " ACME-Furniture ",
-		FullName:    " Abebe ",
-		Email:       " ABEBE@Acme.com ",
-		Password:    "  keep my spaces  ",
-	}
-	in.normalize()
-	if in.CompanyName != "Acme" || in.CompanySlug != "acme-furniture" || in.FullName != "Abebe" || in.Email != "abebe@acme.com" {
+func TestNewUserInput_Normalize(t *testing.T) {
+	in := NewUserInput{FullName: " Abebe ", Email: " ABEBE@Acme.com ", Password: "  keep my spaces  "}
+	in.Normalize()
+	if in.FullName != "Abebe" || in.Email != "abebe@acme.com" {
 		t.Errorf("normalize: %+v", in)
 	}
 	if in.Password != "  keep my spaces  " {

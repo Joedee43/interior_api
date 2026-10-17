@@ -12,6 +12,7 @@ const (
 	CodeBadRequest       = "bad_request"
 	CodeValidation       = "validation_failed"
 	CodeUnauthenticated  = "unauthenticated"
+	CodeForbidden        = "forbidden"
 	CodeForbiddenOrigin  = "forbidden_origin"
 	CodeNotFound         = "not_found"
 	CodeMethodNotAllowed = "method_not_allowed"

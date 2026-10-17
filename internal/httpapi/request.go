@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"regexp"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,6 +20,13 @@ func limitBody(limit int64) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// ValidUUID reports whether s is a canonical UUID. Check path IDs with it
+// before querying: PostgreSQL rejects a malformed uuid with an error,
+// which would otherwise surface as a 500 instead of a 404.
+func ValidUUID(s string) bool { return uuidPattern.MatchString(s) }
 
 // DecodeJSON strictly decodes the request body into dst and, on failure,
 // writes the error response itself and returns false:

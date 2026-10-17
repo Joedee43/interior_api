@@ -4,8 +4,9 @@ import "context"
 
 // Principal is who is making the current request.
 type Principal struct {
-	UserID    string
-	SessionID string
+	UserID          string
+	SessionID       string
+	IsPlatformAdmin bool // read fresh from users on every request
 }
 
 // principalKey is an unexported type, so no other package can create a
@@ -20,7 +21,7 @@ func WithPrincipal(ctx context.Context, p Principal) context.Context {
 
 // PrincipalFrom returns the authenticated principal stored by
 // RequireSession. It lives on context.Context, not *gin.Context, so
-// services can read it too (Phase 3 authorization) without depending on Gin.
+// services can read it too without depending on Gin.
 func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(principalKey{}).(Principal)
 	return p, ok

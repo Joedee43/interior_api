@@ -1,86 +1,101 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/Joedee43/interior_api/internal/company"
 	"github.com/Joedee43/interior_api/internal/httpapi"
 )
 
-// Error codes specific to auth (generic ones live in httpapi).
-const (
-	codeEmailTaken         = "email_taken"
-	codeSlugTaken          = "slug_taken"
-	codeInvalidCredentials = "invalid_credentials"
-)
+const codeInvalidCredentials = "invalid_credentials"
 
 const SessionCookieName = "interior_session"
 
-// CookieConfig controls the session cookie. Secure must be true whenever
-// the site is served over HTTPS (production); browsers refuse to send
-// Secure cookies over plain http://localhost, so development turns it off.
-type CookieConfig struct {
+// Cookies writes the session cookie. Secure must be true whenever the
+// site is served over HTTPS (production); browsers refuse to send Secure
+// cookies over plain http://localhost, so development turns it off.
+type Cookies struct {
 	Secure bool
+	MaxAge time.Duration
 }
 
-// Limits are the rate limiters for unauthenticated endpoints.
+// http.SetCookie is used instead of gin's c.SetCookie because it exposes
+// every attribute, SameSite included, in one struct.
+func (k Cookies) Set(c *gin.Context, token string) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     SessionCookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int(k.MaxAge.Seconds()),
+		HttpOnly: true, // not readable from JavaScript, so XSS cannot steal it
+		Secure:   k.Secure,
+		SameSite: http.SameSiteLaxMode, // not sent on cross-site POSTs
+	})
+}
+
+func (k Cookies) Clear(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1, // tells the browser to delete it now
+		HttpOnly: true,
+		Secure:   k.Secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// MembershipLister supplies the memberships shown by /auth/me and login.
+// The company package implements it; declaring the interface here, on the
+// consuming side, is what lets auth avoid importing company.
+type MembershipLister interface {
+	ListMemberships(ctx context.Context, userID string) ([]Membership, error)
+}
+
+// Limits are the rate limiters for login.
 type Limits struct {
 	LoginPerIP    *httpapi.KeyedLimiter
 	LoginPerEmail *httpapi.KeyedLimiter
-	RegisterPerIP *httpapi.KeyedLimiter
 }
 
 func DefaultLimits() Limits {
 	return Limits{
 		LoginPerIP:    httpapi.NewKeyedLimiter(6*time.Second, 10), // ~10/min per IP
 		LoginPerEmail: httpapi.NewKeyedLimiter(12*time.Second, 5), // ~5/min per account
-		RegisterPerIP: httpapi.NewKeyedLimiter(12*time.Minute, 5), // ~5/hour per IP
 	}
 }
 
 type Handler struct {
-	svc    *Service
-	cookie CookieConfig
-	limits Limits
+	svc         *Service
+	memberships MembershipLister
+	cookies     Cookies
+	limits      Limits
 }
 
-func NewHandler(svc *Service, cookie CookieConfig, limits Limits) *Handler {
-	return &Handler{svc: svc, cookie: cookie, limits: limits}
+func NewHandler(svc *Service, memberships MembershipLister, cookies Cookies, limits Limits) *Handler {
+	return &Handler{svc: svc, memberships: memberships, cookies: cookies, limits: limits}
 }
 
 // Mount registers /v1/auth/* (passed to httpapi.Deps.V1Routes).
+// register-company is mounted by the company package.
 func (h *Handler) Mount(v1 *gin.RouterGroup) {
 	g := v1.Group("/auth")
-	g.POST("/register-company", httpapi.RateLimitByIP(h.limits.RegisterPerIP, "register"), h.registerCompany)
 	g.POST("/login", httpapi.RateLimitByIP(h.limits.LoginPerIP, "login"), h.login)
 	g.POST("/logout", h.logout)
 	g.GET("/me", h.RequireSession(), h.me)
 }
 
-// ---- request / response DTOs ----------------------------------------
+// ---- response DTOs ----------------------------------------------------
 //
 // These structs are the JSON contract. Keeping them separate from the
 // domain types means adding a field to auth.User (say, a password hash)
 // can never leak into a response by accident.
 
-type registerCompanyRequest struct {
-	CompanyName string `json:"company_name"`
-	CompanySlug string `json:"company_slug"`
-	FullName    string `json:"full_name"`
-	Email       string `json:"email"`
-	Password    string `json:"password"`
-}
-
-type loginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-type userDTO struct {
+type UserDTO struct {
 	ID              string    `json:"id"`
 	Email           string    `json:"email"`
 	FullName        string    `json:"full_name"`
@@ -89,68 +104,46 @@ type userDTO struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-type companyDTO struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Slug   string `json:"slug"`
+type MembershipDTO struct {
+	Company struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Slug   string `json:"slug"`
+		Status string `json:"status"`
+	} `json:"company"`
+	Role   string `json:"role"`
 	Status string `json:"status"`
 }
 
-type membershipDTO struct {
-	Company companyDTO `json:"company"`
-	Role    string     `json:"role"`
-	Status  string     `json:"status"`
+type AccountResponse struct {
+	User        UserDTO         `json:"user"`
+	Memberships []MembershipDTO `json:"memberships"`
 }
 
-type accountResponse struct {
-	User        userDTO         `json:"user"`
-	Memberships []membershipDTO `json:"memberships"`
+func ToUserDTO(u User) UserDTO {
+	return UserDTO{
+		ID: u.ID, Email: u.Email, FullName: u.FullName, Status: u.Status,
+		IsPlatformAdmin: u.IsPlatformAdmin, CreatedAt: u.CreatedAt,
+	}
 }
 
-func toAccountResponse(a Account) accountResponse {
+func NewAccountResponse(u User, ms []Membership) AccountResponse {
 	// make(..., 0, n) so an empty list encodes as [] rather than null.
-	ms := make([]membershipDTO, 0, len(a.Memberships))
-	for _, m := range a.Memberships {
-		ms = append(ms, membershipDTO{
-			Company: toCompanyDTO(m.Company),
-			Role:    m.Role,
-			Status:  m.Status,
-		})
+	dtos := make([]MembershipDTO, 0, len(ms))
+	for _, m := range ms {
+		var d MembershipDTO
+		d.Company.ID, d.Company.Name, d.Company.Slug, d.Company.Status = m.CompanyID, m.CompanyName, m.CompanySlug, m.CompanyStatus
+		d.Role, d.Status = m.Role, m.Status
+		dtos = append(dtos, d)
 	}
-	u := a.User
-	return accountResponse{
-		User: userDTO{
-			ID: u.ID, Email: u.Email, FullName: u.FullName, Status: u.Status,
-			IsPlatformAdmin: u.IsPlatformAdmin, CreatedAt: u.CreatedAt,
-		},
-		Memberships: ms,
-	}
-}
-
-func toCompanyDTO(c company.Company) companyDTO {
-	return companyDTO{ID: c.ID, Name: c.Name, Slug: c.Slug, Status: c.Status}
+	return AccountResponse{User: ToUserDTO(u), Memberships: dtos}
 }
 
 // ---- handlers ---------------------------------------------------------
 
-func (h *Handler) registerCompany(c *gin.Context) {
-	var req registerCompanyRequest
-	if !httpapi.DecodeJSON(c, &req) {
-		return
-	}
-	acct, token, err := h.svc.RegisterCompany(c.Request.Context(), RegisterCompanyInput{
-		CompanyName: req.CompanyName,
-		CompanySlug: req.CompanySlug,
-		FullName:    req.FullName,
-		Email:       req.Email,
-		Password:    req.Password,
-	}, sessionMeta(c))
-	if err != nil {
-		writeError(c, err)
-		return
-	}
-	h.setSessionCookie(c, token)
-	c.JSON(http.StatusCreated, toAccountResponse(acct))
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 func (h *Handler) login(c *gin.Context) {
@@ -166,13 +159,13 @@ func (h *Handler) login(c *gin.Context) {
 	}
 
 	previous, _ := c.Cookie(SessionCookieName)
-	acct, token, err := h.svc.Login(c.Request.Context(), req.Email, req.Password, previous, sessionMeta(c))
+	user, token, err := h.svc.Login(c.Request.Context(), req.Email, req.Password, previous, SessionMetaFrom(c))
 	if err != nil {
 		writeError(c, err)
 		return
 	}
-	h.setSessionCookie(c, token)
-	c.JSON(http.StatusOK, toAccountResponse(acct))
+	h.cookies.Set(c, token)
+	h.respondAccount(c, http.StatusOK, user)
 }
 
 func (h *Handler) logout(c *gin.Context) {
@@ -181,19 +174,30 @@ func (h *Handler) logout(c *gin.Context) {
 		httpapi.WriteInternalError(c, err)
 		return
 	}
-	h.clearSessionCookie(c)
+	h.cookies.Clear(c)
 	c.Status(http.StatusNoContent)
 }
 
 func (h *Handler) me(c *gin.Context) {
 	p, _ := PrincipalFrom(c.Request.Context()) // guaranteed by RequireSession
-	acct, err := h.svc.Account(c.Request.Context(), p.UserID)
+	user, err := h.svc.GetUser(c.Request.Context(), p.UserID)
 	if err != nil {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toAccountResponse(acct))
+	h.respondAccount(c, http.StatusOK, user)
 }
+
+func (h *Handler) respondAccount(c *gin.Context, status int, user User) {
+	ms, err := h.memberships.ListMemberships(c.Request.Context(), user.ID)
+	if err != nil {
+		httpapi.WriteInternalError(c, err)
+		return
+	}
+	c.JSON(status, NewAccountResponse(user, ms))
+}
+
+// ---- middleware -------------------------------------------------------
 
 // RequireSession rejects requests without a valid session cookie and
 // stores the Principal on the request context for later handlers.
@@ -211,54 +215,38 @@ func (h *Handler) RequireSession() gin.HandlerFunc {
 	}
 }
 
+// RequirePlatformAdmin must come after RequireSession in the chain.
+func RequirePlatformAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		p, ok := PrincipalFrom(c.Request.Context())
+		if !ok {
+			writeError(c, ErrUnauthenticated)
+			return
+		}
+		if !p.IsPlatformAdmin {
+			writeError(c, ErrForbidden)
+			return
+		}
+		c.Next()
+	}
+}
+
 // ---- helpers ----------------------------------------------------------
 
-// writeError maps domain errors to HTTP. This switch is the only place
-// that knows both sides.
+// writeError maps auth's domain errors to HTTP.
 func writeError(c *gin.Context, err error) {
-	var verr *ValidationError
 	switch {
-	case errors.As(err, &verr):
-		httpapi.WriteValidationError(c, verr.Fields)
-	case errors.Is(err, ErrEmailTaken):
-		httpapi.WriteError(c, http.StatusConflict, codeEmailTaken, "an account with this email already exists")
-	case errors.Is(err, company.ErrSlugTaken):
-		httpapi.WriteError(c, http.StatusConflict, codeSlugTaken, "this company slug is already taken")
 	case errors.Is(err, ErrInvalidCredentials):
 		httpapi.WriteError(c, http.StatusUnauthorized, codeInvalidCredentials, "invalid email or password")
 	case errors.Is(err, ErrUnauthenticated):
 		httpapi.WriteError(c, http.StatusUnauthorized, httpapi.CodeUnauthenticated, "authentication required")
+	case errors.Is(err, ErrForbidden):
+		httpapi.WriteError(c, http.StatusForbidden, httpapi.CodeForbidden, "you do not have permission to do this")
 	default:
 		httpapi.WriteInternalError(c, err)
 	}
 }
 
-func sessionMeta(c *gin.Context) SessionMeta {
+func SessionMetaFrom(c *gin.Context) SessionMeta {
 	return SessionMeta{UserAgent: c.Request.UserAgent(), IP: c.ClientIP()}
-}
-
-// http.SetCookie is used instead of gin's c.SetCookie because it exposes
-// every attribute, SameSite included, in one struct.
-func (h *Handler) setSessionCookie(c *gin.Context, token string) {
-	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     SessionCookieName,
-		Value:    token,
-		Path:     "/",
-		MaxAge:   int(h.svc.SessionTTL().Seconds()),
-		HttpOnly: true, // not readable from JavaScript, so XSS cannot steal it
-		Secure:   h.cookie.Secure,
-		SameSite: http.SameSiteLaxMode, // not sent on cross-site POSTs
-	})
-}
-
-func (h *Handler) clearSessionCookie(c *gin.Context) {
-	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     SessionCookieName,
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1, // tells the browser to delete it now
-		HttpOnly: true,
-		Secure:   h.cookie.Secure,
-		SameSite: http.SameSiteLaxMode,
-	})
 }
