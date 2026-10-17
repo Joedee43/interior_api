@@ -7,11 +7,13 @@ Go + Gin + PostgreSQL backend for the immersive furniture platform.
 ```text
 cmd/api/          API server — composition root (config → logger → pool → router → http.Server)
 cmd/migrate/      goose migration runner
+cmd/admin/        operator CLI (grant/revoke/list platform admins)
 internal/config/  environment loading + validation
 internal/postgres/  pgxpool setup, WithTx, DBTX (no business SQL); pgtest/ for integration tests
 internal/httpapi/ routing, middleware, JSON error format, origin check, rate limiter, health
-internal/auth/    users, passwords (Argon2id), sessions, register/login/logout/me
-internal/company/ companies and memberships
+internal/auth/    identity: users, passwords (Argon2id), sessions, login/logout/me
+internal/company/ tenancy: register-company, companies, members, company-scoped authorization
+internal/apitest/ full-stack test harness (imported only by _test.go files)
 migrations/       versioned SQL (see migrations/README.md)
 requests/         manual API requests (VS Code REST Client / Postman)
 ```
@@ -79,3 +81,33 @@ go test ./...     # DB integration tests skip unless TEST_DATABASE_URL is set
   for login). This only holds for a single API process.
 - Error codes: `validation_failed` (with `details`), `email_taken`,
   `slug_taken`, `invalid_credentials`, `unauthenticated`, `rate_limited`.
+
+## Authorization and company isolation
+
+Company-private routes live under `/v1/companies/:companyID` and pass
+three checks in order: session → active membership in an active company
+→ role.
+
+| Endpoint | Who |
+|---|---|
+| `GET /v1/companies/:companyID` | any active member |
+| `PATCH /v1/companies/:companyID` (`name`) | `company_admin` |
+| `GET /v1/companies/:companyID/members` | any active member |
+| `POST /v1/companies/:companyID/members` | `company_admin` — creates a new account |
+| `PATCH /v1/companies/:companyID/members/:userID` (`role`, `status`) | `company_admin` |
+| `GET /v1/admin/companies?limit=` | platform admin |
+
+- **404, not 403, for other companies**: a non-member, a disabled member, a
+  suspended company and a nonexistent ID all look identical (`not_found`),
+  so company IDs cannot be probed. Members lacking a role get 403 `forbidden`.
+- Every store query is scoped by the authorized member's `company_id`.
+- A company always keeps one active admin (409 `last_admin`). Membership
+  changes lock the company row, so concurrent changes cannot break this.
+- Platform admins are granted only via `go run ./cmd/admin
+  grant-platform-admin -email …` and get no implicit access inside companies.
+
+## Go version
+
+`go.mod` requires **Go 1.26** (goose v3.29 and golang.org/x/crypto need it).
+With an older local Go, the default `GOTOOLCHAIN=auto` downloads 1.26
+automatically the first time you build.

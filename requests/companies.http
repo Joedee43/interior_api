@@ -1,0 +1,44 @@
+# Company-scoped endpoints. Log in first with requests/auth.http, then
+# paste your company id (from the login/me response) below.
+
+@base = http://localhost:5050
+@companyId = paste-company-id-here
+@userId = paste-member-user-id-here
+
+### Company profile (any active member)
+GET {{base}}/v1/companies/{{companyId}}
+
+### Rename (company_admin only; slug cannot change)
+PATCH {{base}}/v1/companies/{{companyId}}
+Content-Type: application/json
+
+{ "name": "Demo Furniture & Office" }
+
+### List members (any active member)
+GET {{base}}/v1/companies/{{companyId}}/members
+
+### Create a staff account (company_admin only)
+POST {{base}}/v1/companies/{{companyId}}/members
+Content-Type: application/json
+
+{
+  "email": "demo-staff@example.com",
+  "full_name": "Demo Staff",
+  "password": "staff password 123",
+  "role": "company_staff"
+}
+
+### Change role and/or status (company_admin only)
+PATCH {{base}}/v1/companies/{{companyId}}/members/{{userId}}
+Content-Type: application/json
+
+{ "role": "company_admin" }
+
+### Disable a member
+PATCH {{base}}/v1/companies/{{companyId}}/members/{{userId}}
+Content-Type: application/json
+
+{ "status": "disabled" }
+
+### All companies (platform admin only — grant with: go run ./cmd/admin grant-platform-admin -email you@example.com)
+GET {{base}}/v1/admin/companies?limit=50
