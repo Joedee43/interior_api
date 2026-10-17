@@ -15,6 +15,13 @@ import (
 type Deps struct {
 	Logger *slog.Logger
 	DB     Pinger
+	// AllowedOrigins are browser origins (scheme://host[:port]) allowed to
+	// make state-changing requests; see checkOrigin.
+	AllowedOrigins []string
+	// V1Routes lets each domain package mount its own routes on /v1
+	// without httpapi importing it (which would create an import cycle,
+	// since domain handlers import httpapi for WriteError).
+	V1Routes []func(v1 *gin.RouterGroup)
 }
 
 // NewRouter builds the Gin engine. It uses gin.New() rather than
@@ -31,7 +38,7 @@ func NewRouter(d Deps) *gin.Engine {
 	r.NoMethod(methodNotAllowed)
 
 	// Order matters: request ID first so logging and recovery can use it.
-	r.Use(requestID(), requestLogger(d.Logger), recovery(d.Logger))
+	r.Use(requestID(), requestLogger(d.Logger), recovery(d.Logger), limitBody(MaxBodyBytes))
 
 	health := &healthHandler{db: d.DB, log: d.Logger, timeout: 2 * time.Second}
 	// Operational endpoints stay unversioned; they are not part of the
@@ -39,8 +46,10 @@ func NewRouter(d Deps) *gin.Engine {
 	r.GET("/health", health.live)
 	r.GET("/health/database", health.database)
 
-	v1 := r.Group("/v1")
-	_ = v1 // Phase 2 registers /v1/auth/* here.
+	v1 := r.Group("/v1", checkOrigin(d.AllowedOrigins))
+	for _, mount := range d.V1Routes {
+		mount(v1)
+	}
 
 	return r
 }

@@ -84,7 +84,7 @@ func requestLogger(log *slog.Logger) gin.HandlerFunc {
 			slog.Int("status", status),
 			slog.Duration("latency", time.Since(start)),
 			slog.String("client_ip", c.ClientIP()),
-			slog.Int("bytes", c.Writer.Size()),
+			slog.Int("bytes", max(c.Writer.Size(), 0)), // Gin reports -1 when no body was written
 		}
 		for _, e := range c.Errors {
 			attrs = append(attrs, slog.String("error", e.Error()))

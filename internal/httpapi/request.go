@@ -1,0 +1,60 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+// MaxBodyBytes caps JSON request bodies. File uploads (Phase 6) will get
+// their own, larger limit on their own routes.
+const MaxBodyBytes = 1 << 20 // 1 MiB
+
+func limitBody(limit int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+		c.Next()
+	}
+}
+
+// DecodeJSON strictly decodes the request body into dst and, on failure,
+// writes the error response itself and returns false:
+//
+//	var req loginRequest
+//	if !httpapi.DecodeJSON(c, &req) {
+//		return
+//	}
+//
+// Unknown fields are rejected so a typo like "passwrod" fails loudly
+// instead of being silently ignored.
+func DecodeJSON(c *gin.Context, dst any) bool {
+	dec := json.NewDecoder(c.Request.Body)
+	dec.DisallowUnknownFields()
+
+	err := dec.Decode(dst)
+	if err == nil {
+		// Reject trailing data such as `{"a":1}{"b":2}`.
+		if dec.Decode(&struct{}{}) != io.EOF {
+			err = errors.New("body must contain a single JSON object")
+		}
+	}
+	if err == nil {
+		return true
+	}
+
+	var tooLarge *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooLarge):
+		WriteError(c, http.StatusRequestEntityTooLarge, CodeTooLarge, "request body too large")
+	case errors.Is(err, io.EOF):
+		WriteError(c, http.StatusBadRequest, CodeBadRequest, "request body is empty")
+	default:
+		// json errors describe the problem (field name, wrong type) without
+		// exposing anything internal, so they are safe to return.
+		WriteError(c, http.StatusBadRequest, CodeBadRequest, "invalid JSON: "+err.Error())
+	}
+	return false
+}

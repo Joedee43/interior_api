@@ -10,8 +10,13 @@ import (
 // `code`, never on `message`. Add codes here as domain errors appear.
 const (
 	CodeBadRequest       = "bad_request"
+	CodeValidation       = "validation_failed"
+	CodeUnauthenticated  = "unauthenticated"
+	CodeForbiddenOrigin  = "forbidden_origin"
 	CodeNotFound         = "not_found"
 	CodeMethodNotAllowed = "method_not_allowed"
+	CodeTooLarge         = "payload_too_large"
+	CodeRateLimited      = "rate_limited"
 	CodeInternal         = "internal_error"
 	CodeUnavailable      = "service_unavailable"
 )
@@ -24,9 +29,12 @@ type ErrorResponse struct {
 }
 
 type ErrorBody struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	RequestID string `json:"request_id,omitempty"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	// Details maps a request field to what is wrong with it; only set
+	// for validation_failed.
+	Details   map[string]string `json:"details,omitempty"`
+	RequestID string            `json:"request_id,omitempty"`
 }
 
 // WriteError writes the standard error body and aborts the handler chain.
@@ -38,6 +46,23 @@ func WriteError(c *gin.Context, status int, code, message string) {
 		Message:   message,
 		RequestID: RequestID(c),
 	}})
+}
+
+// WriteValidationError writes a 400 listing every invalid field.
+func WriteValidationError(c *gin.Context, details map[string]string) {
+	c.AbortWithStatusJSON(http.StatusBadRequest, ErrorResponse{Error: ErrorBody{
+		Code:      CodeValidation,
+		Message:   "request validation failed",
+		Details:   details,
+		RequestID: RequestID(c),
+	}})
+}
+
+// WriteInternalError records err for the request log (see requestLogger)
+// and sends the client a generic 500 that reveals nothing about it.
+func WriteInternalError(c *gin.Context, err error) {
+	_ = c.Error(err)
+	WriteError(c, http.StatusInternalServerError, CodeInternal, "internal server error")
 }
 
 func notFound(c *gin.Context) {
