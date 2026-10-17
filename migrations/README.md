@@ -35,4 +35,5 @@ go run ./cmd/migrate -test up        # same, against TEST_DATABASE_URL
 | Constraint names | explicit: `<table>_<column>_key` (unique), `<table>_<column>_fkey`, `<table>_<rule>_check` — so Go code can map violations with `errors.As(err, &pgErr)` + `pgErr.ConstraintName` |
 | Foreign keys | always indexed; choose `ON DELETE` deliberately (`RESTRICT` by default) |
 | Tenant tables | carry `company_id NOT NULL` and every query filters on it |
-| Primary keys | **decided at the start of Phase 2** (`uuid DEFAULT gen_random_uuid()` vs `bigint GENERATED ALWAYS AS IDENTITY`) |
+| Primary keys | `id uuid PRIMARY KEY DEFAULT gen_random_uuid()` (built into PostgreSQL 13+, no extension). Join tables use a composite key instead. |
+| Emails, slugs | normalized in Go (trim + lowercase) before insert, so plain `UNIQUE` works |
