@@ -56,16 +56,18 @@ type MembershipLister interface {
 	ListMemberships(ctx context.Context, userID string) ([]Membership, error)
 }
 
-// Limits are the rate limiters for login.
+// Limits are the rate limiters for unauthenticated auth endpoints.
 type Limits struct {
 	LoginPerIP    *httpapi.KeyedLimiter
 	LoginPerEmail *httpapi.KeyedLimiter
+	RegisterPerIP *httpapi.KeyedLimiter
 }
 
 func DefaultLimits() Limits {
 	return Limits{
 		LoginPerIP:    httpapi.NewKeyedLimiter(6*time.Second, 10), // ~10/min per IP
 		LoginPerEmail: httpapi.NewKeyedLimiter(12*time.Second, 5), // ~5/min per account
+		RegisterPerIP: httpapi.NewKeyedLimiter(12*time.Minute, 5), // ~5/hour per IP
 	}
 }
 
@@ -84,6 +86,7 @@ func NewHandler(svc *Service, memberships MembershipLister, cookies Cookies, lim
 // register-company is mounted by the company package.
 func (h *Handler) Mount(v1 *gin.RouterGroup) {
 	g := v1.Group("/auth")
+	g.POST("/register", httpapi.RateLimitByIP(h.limits.RegisterPerIP, "register-customer"), h.register)
 	g.POST("/login", httpapi.RateLimitByIP(h.limits.LoginPerIP, "login"), h.login)
 	g.POST("/logout", h.logout)
 	g.GET("/me", h.RequireSession(), h.me)
@@ -140,6 +143,29 @@ func NewAccountResponse(u User, ms []Membership) AccountResponse {
 }
 
 // ---- handlers ---------------------------------------------------------
+
+type registerRequest struct {
+	FullName string `json:"full_name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// register creates a customer account (a user with no company) and logs
+// it in. Companies register through /auth/register-company instead.
+func (h *Handler) register(c *gin.Context) {
+	var req registerRequest
+	if !httpapi.DecodeJSON(c, &req) {
+		return
+	}
+	user, token, err := h.svc.RegisterCustomer(c.Request.Context(),
+		NewUserInput{Email: req.Email, FullName: req.FullName, Password: req.Password}, SessionMetaFrom(c))
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	h.cookies.Set(c, token)
+	h.respondAccount(c, http.StatusCreated, user)
+}
 
 type loginRequest struct {
 	Email    string `json:"email"`
@@ -235,7 +261,12 @@ func RequirePlatformAdmin() gin.HandlerFunc {
 
 // writeError maps auth's domain errors to HTTP.
 func writeError(c *gin.Context, err error) {
+	var verr *ValidationError
 	switch {
+	case errors.As(err, &verr):
+		httpapi.WriteValidationError(c, verr.Fields)
+	case errors.Is(err, ErrEmailTaken):
+		httpapi.WriteError(c, http.StatusConflict, "email_taken", "an account with this email already exists")
 	case errors.Is(err, ErrInvalidCredentials):
 		httpapi.WriteError(c, http.StatusUnauthorized, codeInvalidCredentials, "invalid email or password")
 	case errors.Is(err, ErrUnauthenticated):

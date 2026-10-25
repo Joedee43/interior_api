@@ -253,6 +253,7 @@ func TestLoginRateLimitPerEmail(t *testing.T) {
 	e := apitest.New(t, apitest.Options{LoginLimits: &auth.Limits{
 		LoginPerIP:    httpapi.NewKeyedLimiter(time.Millisecond, 1000),
 		LoginPerEmail: httpapi.NewKeyedLimiter(time.Hour, 3),
+		RegisterPerIP: httpapi.NewKeyedLimiter(time.Millisecond, 1000),
 	}})
 
 	body := loginBody("target-"+pgtest.Unique()+"@example.com", "guess guess guess")

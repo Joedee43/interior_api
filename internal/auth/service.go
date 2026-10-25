@@ -82,6 +82,31 @@ func (s *Service) StartSession(ctx context.Context, db postgres.DBTX, userID str
 	return token, nil
 }
 
+// RegisterCustomer creates a plain user account (no company membership)
+// and logs it in, in one transaction.
+func (s *Service) RegisterCustomer(ctx context.Context, in NewUserInput, meta SessionMeta) (User, string, error) {
+	prepared, err := s.PrepareUser(in) // validates and hashes before the transaction
+	if err != nil {
+		return User{}, "", err
+	}
+	var (
+		user  User
+		token string
+	)
+	err = postgres.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		if user, err = s.InsertUser(ctx, tx, prepared); err != nil {
+			return err
+		}
+		token, err = s.StartSession(ctx, tx, user.ID, meta)
+		return err
+	})
+	if err != nil {
+		return User{}, "", err
+	}
+	return user, token, nil
+}
+
 // Login checks credentials and starts a new session. If the client sent
 // an existing session token, that session is revoked: every login gets a
 // fresh token (prevents session fixation).
