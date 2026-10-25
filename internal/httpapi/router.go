@@ -38,7 +38,9 @@ func NewRouter(d Deps) *gin.Engine {
 	r.NoMethod(methodNotAllowed)
 
 	// Order matters: request ID first so logging and recovery can use it.
-	r.Use(requestID(), requestLogger(d.Logger), recovery(d.Logger), limitBody(MaxBodyBytes))
+	// Body size limits are per use: DecodeJSON caps JSON at MaxBodyBytes,
+	// uploads set their own (larger) cap.
+	r.Use(requestID(), requestLogger(d.Logger), recovery(d.Logger))
 
 	health := &healthHandler{db: d.DB, log: d.Logger, timeout: 2 * time.Second}
 	// Operational endpoints stay unversioned; they are not part of the

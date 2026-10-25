@@ -10,9 +10,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// MaxBodyBytes caps JSON request bodies. File uploads (Phase 6) will get
-// their own, larger limit on their own routes.
+// MaxBodyBytes caps JSON request bodies. File uploads set their own,
+// larger limit with LimitBody on their routes.
 const MaxBodyBytes = 1 << 20 // 1 MiB
+
+// LimitBody caps the request body at limit bytes; reading past it fails
+// with *http.MaxBytesError.
+func LimitBody(limit int64) gin.HandlerFunc { return limitBody(limit) }
 
 func limitBody(limit int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -39,6 +43,10 @@ func ValidUUID(s string) bool { return uuidPattern.MatchString(s) }
 // Unknown fields are rejected so a typo like "passwrod" fails loudly
 // instead of being silently ignored.
 func DecodeJSON(c *gin.Context, dst any) bool {
+	// The JSON size cap lives here rather than in a global middleware, so
+	// upload routes can accept larger bodies with their own limit while
+	// every JSON endpoint is still capped (they all decode through here).
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, MaxBodyBytes)
 	dec := json.NewDecoder(c.Request.Body)
 	dec.DisallowUnknownFields()
 

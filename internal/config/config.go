@@ -31,6 +31,8 @@ type Config struct {
 	DatabaseURL string
 	HTTP        HTTPConfig
 	SessionTTL  time.Duration
+	// StorageDir is where uploaded media files live (local disk store).
+	StorageDir string
 	// AllowedOrigins are browser origins allowed to make state-changing
 	// requests (CSRF defence), e.g. the SvelteKit dev server.
 	AllowedOrigins []string
@@ -103,6 +105,7 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 			ShutdownTimeout:   duration("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
 		},
 		SessionTTL: duration("SESSION_TTL", 7*24*time.Hour),
+		StorageDir: get("STORAGE_DIR", "storage"),
 	}
 
 	for _, raw := range strings.Split(get("ALLOWED_ORIGINS", "http://localhost:5173"), ",") {

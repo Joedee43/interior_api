@@ -21,3 +21,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Uploaded media (local storage)
+/storage/
