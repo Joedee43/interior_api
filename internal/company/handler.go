@@ -118,7 +118,7 @@ type companyDTO struct {
 }
 
 func toCompanyDTO(co Company) companyDTO {
-	return companyDTO{ID: co.ID, Name: co.Name, Slug: co.Slug, Status: co.Status, Currency: co.Currency, CreatedAt: co.CreatedAt, UpdatedAt: co.UpdatedAt}
+	return companyDTO(co) // identical fields: a type conversion, no copying by hand
 }
 
 type memberDTO struct {
@@ -181,7 +181,7 @@ func (h *Handler) update(c *gin.Context) {
 	if !httpapi.DecodeJSON(c, &req) {
 		return
 	}
-	co, err := h.svc.Update(c.Request.Context(), member(c), CompanyUpdate{Name: req.Name, Currency: req.Currency})
+	co, err := h.svc.Update(c.Request.Context(), member(c), CompanyUpdate(req))
 	if err != nil {
 		writeError(c, err)
 		return
@@ -242,7 +242,7 @@ func (h *Handler) updateMember(c *gin.Context) {
 	if !httpapi.DecodeJSON(c, &req) {
 		return
 	}
-	mi, err := h.svc.UpdateMember(c.Request.Context(), member(c), userID, MemberUpdate{Role: req.Role, Status: req.Status})
+	mi, err := h.svc.UpdateMember(c.Request.Context(), member(c), userID, MemberUpdate(req))
 	if err != nil {
 		writeError(c, err)
 		return

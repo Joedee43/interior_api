@@ -52,7 +52,7 @@ type roomDTO struct {
 	HeightMM int32 `json:"height_mm"`
 }
 
-func toRoomDTO(r Room) roomDTO { return roomDTO{r.WidthMM, r.DepthMM, r.HeightMM} }
+func toRoomDTO(r Room) roomDTO { return roomDTO(r) }
 
 type templateDTO struct {
 	ID          string    `json:"id"`

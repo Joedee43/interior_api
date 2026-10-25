@@ -342,13 +342,3 @@ func deleteDraft(ctx context.Context, db postgres.DBTX, companyID, id string) (b
 	}
 	return tag.RowsAffected() == 1, nil
 }
-
-func productExists(ctx context.Context, db postgres.DBTX, companyID, id string) (bool, error) {
-	var ok bool
-	err := db.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM products WHERE company_id = $1 AND id = $2)`, companyID, id).Scan(&ok)
-	if err != nil {
-		return false, fmt.Errorf("check product: %w", err)
-	}
-	return ok, nil
-}
