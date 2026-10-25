@@ -124,8 +124,11 @@ func TestRequestID(t *testing.T) {
 
 	t.Run("unsafe incoming id is replaced", func(t *testing.T) {
 		w := do(r, http.MethodGet, "/health", http.Header{headerRequestID: {"bad id\nforged-log-line"}})
-		if got := w.Header().Get(headerRequestID); strings.Contains(got, "bad") {
-			t.Errorf("unsafe id was kept: %q", got)
+		// Assert it was replaced by a fresh generated id. (Checking that it
+		// does not contain "bad" was flaky: b, a and d are hex digits, so a
+		// random id can contain "bad" by chance.)
+		if got := w.Header().Get(headerRequestID); len(got) != 32 || strings.ContainsAny(got, " \n") || strings.Contains(got, "forged") {
+			t.Errorf("unsafe id was not replaced with a generated one: %q", got)
 		}
 	})
 }
