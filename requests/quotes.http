@@ -1,0 +1,70 @@
+# Quotation workflow. Customers: log in as a customer. Companies: log in
+# as a member of the company. Amounts are minor units of the request's
+# currency (ETB santim): 1400000 = 14,000.00 ETB.
+
+@base = http://localhost:5050
+@designId = paste-design-id-here
+@requestId = paste-quote-request-id-here
+@companyId = paste-company-id-here
+@lineId = paste-line-id-here
+
+### ---- customer ----
+
+### Ask every seller in a design for a quote (one request per seller)
+POST {{base}}/v1/quote-requests/from-design
+Content-Type: application/json
+
+{
+  "design_id": "{{designId}}",
+  "contact_phone": "+251 911 223344",
+  "delivery_address": "Bole, Addis Ababa",
+  "note": "Can you deliver by mid-November?"
+}
+
+### Or ask one seller about products picked directly
+POST {{base}}/v1/quote-requests
+Content-Type: application/json
+
+{ "items": [ { "product_id": "paste-product-id", "quantity": 4 } ] }
+
+### My requests (filter: ?status=quoted)
+GET {{base}}/v1/quote-requests
+
+### One request with lines, charges and totals
+GET {{base}}/v1/quote-requests/{{requestId}}
+
+### Accept — send the revision you looked at
+POST {{base}}/v1/quote-requests/{{requestId}}/accept
+Content-Type: application/json
+
+{ "revision": 1 }
+
+### Reject / cancel
+POST {{base}}/v1/quote-requests/{{requestId}}/reject
+###
+POST {{base}}/v1/quote-requests/{{requestId}}/cancel
+
+### ---- company ----
+
+### Inbox (filter: ?status=pending)
+GET {{base}}/v1/companies/{{companyId}}/quote-requests?status=pending
+
+### Start reviewing
+POST {{base}}/v1/companies/{{companyId}}/quote-requests/{{requestId}}/review
+
+### Send (or revise) the quote: price every line
+PUT {{base}}/v1/companies/{{companyId}}/quote-requests/{{requestId}}/quote
+Content-Type: application/json
+
+{
+  "lines": [ { "line_id": "{{lineId}}", "unit_price_minor": 1400000, "note": "display model discount" } ],
+  "charges": [ { "label": "Delivery within Addis", "amount_minor": 250000 } ],
+  "valid_until": "2026-11-30",
+  "note": "Prices include 15% VAT."
+}
+
+### Decline
+POST {{base}}/v1/companies/{{companyId}}/quote-requests/{{requestId}}/decline
+Content-Type: application/json
+
+{ "note": "Sorry, this model is discontinued." }

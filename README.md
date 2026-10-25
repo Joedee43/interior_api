@@ -15,6 +15,7 @@ internal/auth/    identity: users, passwords (Argon2id), sessions, login/logout/
 internal/company/ tenancy: register-company, companies, members, company-scoped authorization
 internal/catalog/ products (company CRUD + lifecycle) and the public catalog
 internal/design/  room templates and customer designs (uses catalog via an interface)
+internal/quote/   requests for quotation (uses catalog, design and auth via interfaces)
 internal/storage/ file storage interface + local disk store
 internal/apitest/ full-stack test harness (imported only by _test.go files)
 migrations/       versioned SQL (see migrations/README.md)
@@ -233,6 +234,44 @@ Furniture is always real size: there is no scale.
   per seller and currency at current prices. It is not a quote.
 - Products and variants placed in designs cannot be deleted (409
   `product_in_use` / `variant_in_use`); archive or switch them off instead.
+
+## Quotations
+
+A customer asks a seller to price products; the seller quotes; the
+customer accepts or rejects. Each request concerns **one company**.
+
+| Endpoint | Who |
+|---|---|
+| `POST /v1/quote-requests/from-design` (`design_id`) | customer — one request per seller in the design |
+| `POST /v1/quote-requests` (`items`) | customer — products from one seller |
+| `GET /v1/quote-requests` · `GET /v1/quote-requests/:id` | the customer who asked |
+| `POST /v1/quote-requests/:id/accept` (`revision`) · `/reject` · `/cancel` | the customer who asked |
+| `GET /v1/companies/:companyID/quote-requests` · `GET …/:id` | any active member |
+| `POST …/:id/review` · `PUT …/:id/quote` · `POST …/:id/decline` | any active member |
+
+**Workflow** (anything else is 409 `invalid_transition`):
+
+| From | Action | By | To |
+|---|---|---|---|
+| pending | review | company | reviewing |
+| pending, reviewing, quoted | quote (again = revision +1) | company | quoted |
+| pending, reviewing | decline | company | declined |
+| quoted | accept / reject | customer | accepted / rejected |
+| pending, reviewing, quoted | cancel | customer | cancelled |
+
+- **Snapshot:** lines copy product name, SKU, options, dimensions,
+  quantity and list price at submit time; later catalog changes never
+  alter a request. Identical design pieces become one line with a quantity;
+  unavailable design items are skipped and listed in the response.
+- **Quoting** prices every line, adds charges (delivery, assembly...), an
+  optional `valid_until` date and a note. The total is computed server-side.
+  No tax is calculated — state it in the note.
+- **Accept** must send the `revision` being accepted (409 `stale_revision`
+  if the company revised it meanwhile) and fails after `valid_until` (409
+  `quote_expired`). Every action runs under the request's row lock.
+- Customers see only their own requests; companies only requests to them
+  (others get 404). Submissions are limited to ~20/hour per user.
+- Not included yet: notifications, chat, payment/checkout, orders.
 
 ## Go version
 
