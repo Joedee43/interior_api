@@ -24,6 +24,7 @@ import (
 	"github.com/Joedee43/interior_api/internal/auth"
 	"github.com/Joedee43/interior_api/internal/catalog"
 	"github.com/Joedee43/interior_api/internal/company"
+	"github.com/Joedee43/interior_api/internal/design"
 	"github.com/Joedee43/interior_api/internal/httpapi"
 	"github.com/Joedee43/interior_api/internal/postgres/pgtest"
 	"github.com/Joedee43/interior_api/internal/storage"
@@ -60,7 +61,7 @@ func New(t *testing.T, opts Options) *Env {
 	}
 	companySvc := company.NewService(pool, authSvc)
 
-	limits := auth.Limits{LoginPerIP: generous(), LoginPerEmail: generous()}
+	limits := auth.Limits{LoginPerIP: generous(), LoginPerEmail: generous(), RegisterPerIP: generous()}
 	if opts.LoginLimits != nil {
 		limits = *opts.LoginLimits
 	}
@@ -79,13 +80,15 @@ func New(t *testing.T, opts Options) *Env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalogH := catalog.NewHandler(catalog.NewService(pool, files, logger), authH.RequireSession(), companyH.RequireMember())
+	catalogSvc := catalog.NewService(pool, files, logger)
+	catalogH := catalog.NewHandler(catalogSvc, authH.RequireSession(), companyH.RequireMember())
+	designH := design.NewHandler(design.NewService(pool, catalogSvc), authH.RequireSession())
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Logger:         logger,
 		DB:             pool,
 		AllowedOrigins: []string{Origin},
-		V1Routes:       []func(*gin.RouterGroup){authH.Mount, companyH.Mount, catalogH.Mount},
+		V1Routes:       []func(*gin.RouterGroup){authH.Mount, companyH.Mount, catalogH.Mount, designH.Mount},
 	})
 	return &Env{T: t, Pool: pool, Router: router, StorageDir: storageDir}
 }
@@ -286,4 +289,25 @@ func (e *Env) Login(email, password string) *http.Cookie {
 		e.T.Fatalf("login %s: %d %s", email, w.Code, w.Body)
 	}
 	return SessionCookie(e.T, w)
+}
+
+// RegisterCustomer creates a customer account (no company) and returns
+// its id and session cookie.
+func (e *Env) RegisterCustomer() User {
+	e.T.Helper()
+	email := "customer-" + pgtest.Unique() + "@example.com"
+	w := e.Do(http.MethodPost, "/v1/auth/register",
+		`{"full_name":"Selam Tesfaye","email":"`+email+`","password":"`+Password+`"}`)
+	if w.Code != http.StatusCreated {
+		e.T.Fatalf("register customer: %d %s", w.Code, w.Body)
+	}
+	var resp auth.AccountResponse
+	Decode(e.T, w, &resp)
+	return User{ID: resp.User.ID, Email: email, Cookie: SessionCookie(e.T, w)}
+}
+
+// MakePlatformAdmin sets the flag directly, as cmd/admin would.
+func (e *Env) MakePlatformAdmin(userID string) {
+	e.T.Helper()
+	e.Exec(`UPDATE users SET is_platform_admin = true WHERE id = $1`, userID)
 }

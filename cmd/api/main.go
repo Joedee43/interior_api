@@ -20,6 +20,7 @@ import (
 	"github.com/Joedee43/interior_api/internal/catalog"
 	"github.com/Joedee43/interior_api/internal/company"
 	"github.com/Joedee43/interior_api/internal/config"
+	"github.com/Joedee43/interior_api/internal/design"
 	"github.com/Joedee43/interior_api/internal/httpapi"
 	"github.com/Joedee43/interior_api/internal/postgres"
 	"github.com/Joedee43/interior_api/internal/storage"
@@ -71,13 +72,18 @@ func run() error {
 		return err
 	}
 	log.Info("media storage ready", slog.String("dir", cfg.StorageDir))
-	catalogHandler := catalog.NewHandler(catalog.NewService(pool, files, log), authHandler.RequireSession(), companyHandler.RequireMember())
+	catalogSvc := catalog.NewService(pool, files, log)
+	catalogHandler := catalog.NewHandler(catalogSvc, authHandler.RequireSession(), companyHandler.RequireMember())
+	// design depends on the catalog only through its Catalog interface.
+	designHandler := design.NewHandler(design.NewService(pool, catalogSvc), authHandler.RequireSession())
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Logger:         log,
 		DB:             pool,
 		AllowedOrigins: cfg.AllowedOrigins,
-		V1Routes:       []func(*gin.RouterGroup){authHandler.Mount, companyHandler.Mount, catalogHandler.Mount},
+		V1Routes: []func(*gin.RouterGroup){
+			authHandler.Mount, companyHandler.Mount, catalogHandler.Mount, designHandler.Mount,
+		},
 	})
 
 	srv := &http.Server{
