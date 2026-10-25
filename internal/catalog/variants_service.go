@@ -499,15 +499,19 @@ func (s *Service) DeleteVariant(ctx context.Context, actor company.Member, produ
 
 // ---- public -----------------------------------------------------------------
 
-// PublicDetail returns a published product with its configuration.
-func (s *Service) PublicDetail(ctx context.Context, companySlug, productSlug string) (Product, Configuration, error) {
+// PublicDetail returns a published product with its configuration and media.
+func (s *Service) PublicDetail(ctx context.Context, companySlug, productSlug string) (Product, Configuration, ProductMedia, error) {
 	p, err := s.PublicGet(ctx, companySlug, productSlug)
 	if err != nil {
-		return Product{}, Configuration{}, err
+		return Product{}, Configuration{}, ProductMedia{}, err
 	}
 	cfg, err := loadConfiguration(ctx, s.pool, p.ID)
 	if err != nil {
-		return Product{}, Configuration{}, err
+		return Product{}, Configuration{}, ProductMedia{}, err
 	}
-	return p, cfg, nil
+	pm, err := s.publicMedia(ctx, p.ID)
+	if err != nil {
+		return Product{}, Configuration{}, ProductMedia{}, err
+	}
+	return p, cfg, pm, nil
 }

@@ -81,7 +81,8 @@ const productSelect = `
 	SELECT p.id, p.company_id, c.slug, c.name, c.currency, cat.slug, cat.name,
 	       p.name, p.slug, p.description, p.price_minor,
 	       p.width_mm, p.depth_mm, p.height_mm, p.weight_g,
-	       p.status, p.published_at, p.created_at, p.updated_at
+	       p.status, p.published_at, p.created_at, p.updated_at,
+	       (SELECT m.id FROM product_media m WHERE m.product_id = p.id AND m.is_primary) AS primary_image_id
 	FROM products p
 	JOIN companies  c   ON c.id = p.company_id
 	JOIN categories cat ON cat.id = p.category_id`
@@ -91,7 +92,7 @@ func scanProduct(row pgx.Row) (Product, error) {
 	err := row.Scan(&p.ID, &p.CompanyID, &p.CompanySlug, &p.CompanyName, &p.Currency, &p.CategorySlug, &p.CategoryName,
 		&p.Name, &p.Slug, &p.Description, &p.PriceMinor,
 		&p.WidthMM, &p.DepthMM, &p.HeightMM, &p.WeightG,
-		&p.Status, &p.PublishedAt, &p.CreatedAt, &p.UpdatedAt)
+		&p.Status, &p.PublishedAt, &p.CreatedAt, &p.UpdatedAt, &p.PrimaryImageID)
 	return p, err
 }
 

@@ -50,6 +50,10 @@ func (h *Handler) Mount(v1 *gin.RouterGroup) {
 	pub.GET("/categories", h.categories)
 	pub.GET("/products", h.publicList)
 	pub.GET("/products/:companySlug/:productSlug", h.publicGet)
+
+	h.mountMedia(p,
+		v1.Group("/companies/:companyID", h.requireSession, h.requireMember),
+		v1.Group("/media"))
 }
 
 // ---- DTOs -------------------------------------------------------------
@@ -90,6 +94,8 @@ type publicProductDTO struct {
 	Dimensions  dimensionsDTO `json:"dimensions"`
 	WeightG     *int32        `json:"weight_g"`
 	PublishedAt *time.Time    `json:"published_at"`
+	// PrimaryImageURL is null when the product has no images.
+	PrimaryImageURL *string `json:"primary_image_url"`
 }
 
 type companyProductDTO struct {
@@ -100,8 +106,14 @@ type companyProductDTO struct {
 }
 
 func toPublicDTO(p Product) publicProductDTO {
+	var primary *string
+	if p.PrimaryImageID != nil {
+		u := publicMediaURL(*p.PrimaryImageID)
+		primary = &u
+	}
 	return publicProductDTO{
-		ID: p.ID, Slug: p.Slug, Name: p.Name, Description: p.Description,
+		PrimaryImageURL: primary,
+		ID:              p.ID, Slug: p.Slug, Name: p.Name, Description: p.Description,
 		Category:    categoryDTO{Slug: p.CategorySlug, Name: p.CategoryName},
 		Company:     sellerDTO{Slug: p.CompanySlug, Name: p.CompanyName},
 		Price:       priceDTO{AmountMinor: p.PriceMinor, Currency: p.Currency},
@@ -316,12 +328,26 @@ func (h *Handler) publicList(c *gin.Context) {
 }
 
 func (h *Handler) publicGet(c *gin.Context) {
-	p, cfg, err := h.svc.PublicDetail(c.Request.Context(), c.Param("companySlug"), c.Param("productSlug"))
+	p, cfg, pm, err := h.svc.PublicDetail(c.Request.Context(), c.Param("companySlug"), c.Param("productSlug"))
 	if err != nil {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, publicDetailDTO{toPublicDTO(p), toConfigurationDTO(cfg, p.Currency)})
+	images := make([]mediaDTO, 0, len(pm.Images))
+	for _, im := range pm.Images {
+		images = append(images, toMediaDTO(im))
+	}
+	var model *mediaDTO
+	if pm.Model != nil {
+		d := toMediaDTO(*pm.Model)
+		model = &d
+	}
+	c.JSON(http.StatusOK, publicDetailDTO{
+		publicProductDTO: toPublicDTO(p),
+		configurationDTO: toConfigurationDTO(cfg, p.Currency),
+		Images:           images,
+		Model:            model,
+	})
 }
 
 // ---- helpers ----------------------------------------------------------
@@ -356,6 +382,7 @@ func int64Query(c *gin.Context, name string) (*int64, bool) {
 
 func writeError(c *gin.Context, err error) {
 	var limitErr *LimitError
+	var fileProblem *FileProblem
 	var verr *auth.ValidationError
 	switch {
 	case errors.As(err, &verr):
@@ -396,6 +423,13 @@ func writeError(c *gin.Context, err error) {
 		httpapi.WriteError(c, http.StatusConflict, "no_available_variants", "a product with options needs at least one available variant to be published")
 	case errors.Is(err, ErrVariantNotDeletable):
 		httpapi.WriteError(c, http.StatusConflict, codeNotDraft, "variants can only be deleted while the product is a draft; set available to false instead")
+	case errors.As(err, &fileProblem):
+		httpapi.WriteError(c, http.StatusBadRequest, "invalid_file", fileProblem.Reason)
+	case errors.Is(err, ErrFileTooLarge):
+		httpapi.WriteError(c, http.StatusRequestEntityTooLarge, httpapi.CodeTooLarge,
+			"file too large: images up to 10 MB, 3D models up to 50 MB")
+	case errors.Is(err, ErrMediaNotFound):
+		httpapi.WriteError(c, http.StatusNotFound, httpapi.CodeNotFound, "media not found")
 	case errors.As(err, &limitErr):
 		httpapi.WriteError(c, http.StatusConflict, "limit_reached", "limit reached: "+limitErr.Error())
 	default:

@@ -4,12 +4,16 @@
 package apitest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +26,7 @@ import (
 	"github.com/Joedee43/interior_api/internal/company"
 	"github.com/Joedee43/interior_api/internal/httpapi"
 	"github.com/Joedee43/interior_api/internal/postgres/pgtest"
+	"github.com/Joedee43/interior_api/internal/storage"
 )
 
 const Origin = "http://localhost:5173"
@@ -35,9 +40,10 @@ type Options struct {
 }
 
 type Env struct {
-	T      *testing.T
-	Pool   *pgxpool.Pool
-	Router http.Handler
+	T          *testing.T
+	Pool       *pgxpool.Pool
+	Router     http.Handler
+	StorageDir string
 }
 
 func generous() *httpapi.KeyedLimiter { return httpapi.NewKeyedLimiter(time.Millisecond, 1000) }
@@ -66,15 +72,64 @@ func New(t *testing.T, opts Options) *Env {
 	cookies := auth.Cookies{Secure: false, MaxAge: time.Hour}
 	authH := auth.NewHandler(authSvc, companySvc, cookies, limits)
 	companyH := company.NewHandler(companySvc, authH.RequireSession(), cookies, registerLimit)
-	catalogH := catalog.NewHandler(catalog.NewService(pool), authH.RequireSession(), companyH.RequireMember())
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// Each environment gets its own storage folder, removed after the test.
+	storageDir := t.TempDir()
+	files, err := storage.NewLocalStore(storageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogH := catalog.NewHandler(catalog.NewService(pool, files, logger), authH.RequireSession(), companyH.RequireMember())
 
 	router := httpapi.NewRouter(httpapi.Deps{
-		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:         logger,
 		DB:             pool,
 		AllowedOrigins: []string{Origin},
 		V1Routes:       []func(*gin.RouterGroup){authH.Mount, companyH.Mount, catalogH.Mount},
 	})
-	return &Env{T: t, Pool: pool, Router: router}
+	return &Env{T: t, Pool: pool, Router: router, StorageDir: storageDir}
+}
+
+// StoredFiles counts files under the environment's storage folder.
+func (e *Env) StoredFiles() int {
+	e.T.Helper()
+	n := 0
+	err := filepath.WalkDir(e.StorageDir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			n++
+		}
+		return err
+	})
+	if err != nil {
+		e.T.Fatal(err)
+	}
+	return n
+}
+
+// Upload sends a multipart/form-data request with one file and optional
+// text fields, the way a browser form or `curl -F` would.
+func (e *Env) Upload(cookie *http.Cookie, method, path, filename string, content []byte, fields map[string]string) *httptest.ResponseRecorder {
+	e.T.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for k, v := range fields {
+		_ = mw.WriteField(k, v)
+	}
+	fw, err := mw.CreateFormFile("file", filename)
+	if err != nil {
+		e.T.Fatal(err)
+	}
+	_, _ = fw.Write(content)
+	_ = mw.Close()
+
+	req := httptest.NewRequest(method, path, &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	w := httptest.NewRecorder()
+	e.Router.ServeHTTP(w, req)
+	return w
 }
 
 // ---- requests ---------------------------------------------------------

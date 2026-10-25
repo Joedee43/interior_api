@@ -97,6 +97,8 @@ func toConfigurationDTO(cfg Configuration, currency string) configurationDTO {
 type publicDetailDTO struct {
 	publicProductDTO
 	configurationDTO
+	Images []mediaDTO `json:"images"`
+	Model  *mediaDTO  `json:"model"`
 }
 
 // ---- helpers ----------------------------------------------------------

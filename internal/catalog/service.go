@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -12,6 +13,7 @@ import (
 	"github.com/Joedee43/interior_api/internal/auth"
 	"github.com/Joedee43/interior_api/internal/company"
 	"github.com/Joedee43/interior_api/internal/postgres"
+	"github.com/Joedee43/interior_api/internal/storage"
 )
 
 const (
@@ -20,10 +22,16 @@ const (
 )
 
 type Service struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	files storage.Store
+	log   *slog.Logger
 }
 
-func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+// NewService takes the file store as an interface: production passes a
+// *storage.LocalStore, and a cloud store can replace it without changes here.
+func NewService(pool *pgxpool.Pool, files storage.Store, log *slog.Logger) *Service {
+	return &Service{pool: pool, files: files, log: log}
+}
 
 // Optional is a PATCH field that can be absent, explicitly null, or set:
 //
@@ -274,22 +282,27 @@ func (s *Service) Transition(ctx context.Context, actor company.Member, id, acti
 
 // Delete removes a draft. Published and archived products are kept (they
 // may be referenced by designs and quotes later); archive them instead.
+//
+// Media rows cascade with the product; their files are removed after the
+// transaction commits (see removeFiles).
 func (s *Service) Delete(ctx context.Context, actor company.Member, id string) error {
-	deleted, err := deleteDraft(ctx, s.pool, actor.CompanyID, id)
+	var keys []string
+	err := s.productTx(ctx, actor, id, func(tx pgx.Tx, status, _ string) error {
+		if status != StatusDraft {
+			return ErrNotDraft
+		}
+		var err error
+		if keys, err = mediaKeys(ctx, tx, id); err != nil {
+			return err
+		}
+		_, err = deleteDraft(ctx, tx, actor.CompanyID, id)
+		return err
+	})
 	if err != nil {
 		return err
 	}
-	if deleted {
-		return nil
-	}
-	exists, err := productExists(ctx, s.pool, actor.CompanyID, id)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return ErrNotFound
-	}
-	return ErrNotDraft
+	s.removeFiles(ctx, keys...)
+	return nil
 }
 
 // ---- company-scoped reads -------------------------------------------------

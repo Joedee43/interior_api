@@ -17,13 +17,14 @@ import (
 // ---- helpers ------------------------------------------------------------
 
 type productResp struct {
-	ID          string  `json:"id"`
-	Slug        string  `json:"slug"`
-	Name        string  `json:"name"`
-	Status      string  `json:"status"`
-	WeightG     *int32  `json:"weight_g"`
-	PublishedAt *string `json:"published_at"`
-	Price       struct {
+	ID              string  `json:"id"`
+	Slug            string  `json:"slug"`
+	Name            string  `json:"name"`
+	Status          string  `json:"status"`
+	WeightG         *int32  `json:"weight_g"`
+	PublishedAt     *string `json:"published_at"`
+	PrimaryImageURL *string `json:"primary_image_url"`
+	Price           struct {
 		AmountMinor int64  `json:"amount_minor"`
 		Currency    string `json:"currency"`
 	} `json:"price"`

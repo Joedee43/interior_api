@@ -62,6 +62,8 @@ type Product struct {
 	PublishedAt  *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	// PrimaryImageID is the gallery's primary image, nil without images.
+	PrimaryImageID *string
 }
 
 // transitions is the product state machine: action -> (from, to).

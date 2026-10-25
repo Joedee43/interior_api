@@ -22,6 +22,7 @@ import (
 	"github.com/Joedee43/interior_api/internal/config"
 	"github.com/Joedee43/interior_api/internal/httpapi"
 	"github.com/Joedee43/interior_api/internal/postgres"
+	"github.com/Joedee43/interior_api/internal/storage"
 )
 
 func main() {
@@ -65,7 +66,12 @@ func run() error {
 	cookies := auth.Cookies{Secure: cfg.CookieSecure(), MaxAge: cfg.SessionTTL}
 	authHandler := auth.NewHandler(authSvc, companySvc, cookies, auth.DefaultLimits())
 	companyHandler := company.NewHandler(companySvc, authHandler.RequireSession(), cookies, company.DefaultRegisterLimit())
-	catalogHandler := catalog.NewHandler(catalog.NewService(pool), authHandler.RequireSession(), companyHandler.RequireMember())
+	files, err := storage.NewLocalStore(cfg.StorageDir)
+	if err != nil {
+		return err
+	}
+	log.Info("media storage ready", slog.String("dir", cfg.StorageDir))
+	catalogHandler := catalog.NewHandler(catalog.NewService(pool, files, log), authHandler.RequireSession(), companyHandler.RequireMember())
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Logger:         log,
