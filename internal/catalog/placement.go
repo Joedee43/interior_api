@@ -35,7 +35,8 @@ type ItemInfo struct {
 	ProductSlug     string
 	ProductName     string
 	Currency        string
-	PriceMinor      int64 // the variant's price, else the product's
+	PriceMinor      int64   // the variant's price, else the product's
+	SKU             *string // the variant's SKU; nil for products without variants
 	WidthMM         int32
 	DepthMM         int32
 	HeightMM        int32
@@ -77,7 +78,7 @@ func (s *Service) Items(ctx context.Context, refs []ItemRef) (map[ItemRef]ItemIn
 	// (product, variant) pair. The variant join also requires the variant
 	// to belong to that product.
 	rows, err := s.pool.Query(ctx, `
-		SELECT r.product_id, r.variant_id, v.id,
+		SELECT r.product_id, r.variant_id, v.id, v.sku,
 		       c.id, c.slug, c.name, c.currency, p.slug, p.name,
 		       COALESCE(v.price_minor, p.price_minor),
 		       p.width_mm, p.depth_mm, p.height_mm,
@@ -101,7 +102,7 @@ func (s *Service) Items(ctx context.Context, refs []ItemRef) (map[ItemRef]ItemIn
 			imageID, modelID   *string
 			variantAvailable   bool
 		)
-		if err := rows.Scan(&info.Ref.ProductID, &reqVariant, &foundV,
+		if err := rows.Scan(&info.Ref.ProductID, &reqVariant, &foundV, &info.SKU,
 			&info.CompanyID, &info.CompanySlug, &info.CompanyName, &info.Currency, &info.ProductSlug, &info.ProductName,
 			&info.PriceMinor, &info.WidthMM, &info.DepthMM, &info.HeightMM,
 			&imageID, &modelID, &info.Listed, &variantAvailable); err != nil {
