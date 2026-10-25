@@ -282,6 +282,8 @@ customer accepts or rejects. Each request concerns **one company**.
 
 - `GET /openapi.yaml` — the OpenAPI 3.1 description of every endpoint
   (`internal/apidocs/openapi.yaml`; a test fails if it drifts from the router).
+- `docs/PROJECT_STATUS.md` — project status, decisions and working agreements
+  (start here on a new machine or in a new session).
 - `docs/OPERATIONS.md` — production checklist, backups (`scripts/backup.ps1`),
   restore, session cleanup, admin commands, CI.
 - `docs/SECURITY_REVIEW.md` — Phase 9 review: fixes, verified controls,
