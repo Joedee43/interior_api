@@ -13,6 +13,7 @@ internal/postgres/  pgxpool setup, WithTx, DBTX (no business SQL); pgtest/ for i
 internal/httpapi/ routing, middleware, JSON error format, origin check, rate limiter, health
 internal/auth/    identity: users, passwords (Argon2id), sessions, login/logout/me
 internal/company/ tenancy: register-company, companies, members, company-scoped authorization
+internal/catalog/ products (company CRUD + lifecycle) and the public catalog
 internal/apitest/ full-stack test harness (imported only by _test.go files)
 migrations/       versioned SQL (see migrations/README.md)
 requests/         manual API requests (VS Code REST Client / Postman)
@@ -105,6 +106,35 @@ three checks in order: session → active membership in an active company
   changes lock the company row, so concurrent changes cannot break this.
 - Platform admins are granted only via `go run ./cmd/admin
   grant-platform-admin -email …` and get no implicit access inside companies.
+
+## Catalog
+
+**Units:** dimensions in integer millimetres (`width_mm`, `depth_mm`,
+`height_mm`, 1–10000), weight in integer grams (`weight_g`, optional),
+price as `price_minor`, an integer in the smallest unit of the company's
+currency (4850000 = 48,500.00 ETB). Each company has one `currency`
+(default `ETB`), changeable only while it has no products (409
+`currency_locked`).
+
+| Endpoint | Who |
+|---|---|
+| `POST/GET /v1/companies/:companyID/products` | any active member |
+| `GET/PATCH/DELETE /v1/companies/:companyID/products/:productID` | any active member; DELETE drafts only |
+| `POST …/products/:productID/publish` · `/archive` · `/restore` | any active member |
+| `GET /v1/catalog/categories` | public |
+| `GET /v1/catalog/products` | public |
+| `GET /v1/catalog/products/:companySlug/:productSlug` | public |
+
+- **Lifecycle:** `draft → published → archived → draft`; anything else is
+  409 `invalid_transition`. Slugs are unique per company and can change only
+  while a product is a draft (409 `slug_locked`), so public URLs stay stable.
+- **Public catalog** shows only published products of active companies;
+  everything else is 404. Filters: `category`, `company`, `q` (name
+  contains), `currency` + `min_price`/`max_price`, `sort=newest|price_asc|price_desc`.
+- **Pagination** (both lists): `limit` 1–100 (default 20); responses carry
+  `next_cursor` (null on the last page) — send it back unchanged as
+  `?cursor=`. Cursors are keyset-based, so inserts while paging never cause
+  skipped or repeated items, and a cursor only works with the sort it came from.
 
 ## Go version
 

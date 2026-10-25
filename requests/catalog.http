@@ -1,0 +1,57 @@
+# Catalog. Log in first (requests/auth.http) for the company endpoints.
+# Prices are integers in minor units of the company currency:
+# 4850000 = 48,500.00 ETB. Dimensions are millimetres, weight grams.
+
+@base = http://localhost:5050
+@companyId = paste-company-id-here
+@productId = paste-product-id-here
+
+### ---- public (no login) ----
+
+### Categories
+GET {{base}}/v1/catalog/categories
+
+### Browse: newest first, 20 per page. Pass next_cursor back as ?cursor=
+GET {{base}}/v1/catalog/products?category=sofas&sort=newest&limit=20
+
+### Price filters need a currency
+GET {{base}}/v1/catalog/products?currency=ETB&min_price=1000000&max_price=5000000&sort=price_asc
+
+### One product by company slug + product slug
+GET {{base}}/v1/catalog/products/demo-furniture/oslo-3-seat-sofa
+
+### ---- company (any active member) ----
+
+### Create a draft (slug derived from name when omitted)
+POST {{base}}/v1/companies/{{companyId}}/products
+Content-Type: application/json
+
+{
+  "category": "sofas",
+  "name": "Oslo 3-Seat Sofa",
+  "description": "Linen upholstery, solid oak legs",
+  "price_minor": 4850000,
+  "width_mm": 2100,
+  "depth_mm": 900,
+  "height_mm": 820,
+  "weight_g": 42000
+}
+
+### List own products, any status
+GET {{base}}/v1/companies/{{companyId}}/products?status=draft&limit=20
+
+### Edit (send only what changes; "weight_g": null clears it)
+PATCH {{base}}/v1/companies/{{companyId}}/products/{{productId}}
+Content-Type: application/json
+
+{ "price_minor": 4600000 }
+
+### Lifecycle: draft -> published -> archived -> draft
+POST {{base}}/v1/companies/{{companyId}}/products/{{productId}}/publish
+###
+POST {{base}}/v1/companies/{{companyId}}/products/{{productId}}/archive
+###
+POST {{base}}/v1/companies/{{companyId}}/products/{{productId}}/restore
+
+### Delete (drafts only)
+DELETE {{base}}/v1/companies/{{companyId}}/products/{{productId}}
