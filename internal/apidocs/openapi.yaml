@@ -1,0 +1,1275 @@
+openapi: 3.1.0
+info:
+  title: Interior Furniture Platform API
+  version: 0.9.0
+  description: |
+    Backend for a multi-company immersive furniture platform: company
+    catalogs with 3D models and variants, public browsing, saved room
+    designs and requests for quotation.
+
+    **Conventions**
+    - Units: lengths in integer **millimetres**, weights in integer **grams**,
+      money in integer **minor units** of the stated currency
+      (ETB santim: `1250000` = 12,500.00 ETB).
+    - Coordinates (designs): Y up; origin at the room's north-west floor
+      corner; x runs east along the width, z runs south along the depth.
+    - Errors always look like `Error`; clients switch on `error.code`.
+    - Lists are cursor-paginated: pass `next_cursor` back as `cursor`
+      unchanged; it is `null` on the last page.
+    - Authentication is a session cookie set by login/registration
+      (`interior_session`; `__Host-interior_session` over HTTPS).
+      Browsers must send state-changing requests from an allowed `Origin`.
+servers:
+  - url: http://localhost:5050
+    description: Local development
+# Public by default; operations that need a session declare
+# `security: [{session: []}]` themselves.
+security: []
+tags:
+  - name: health
+  - name: auth
+  - name: companies
+  - name: catalog
+  - name: variants
+  - name: media
+  - name: rooms
+  - name: designs
+  - name: quotes
+  - name: admin
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: interior_session
+      description: Opaque session token set by login/registration. Over HTTPS the cookie is named `__Host-interior_session`.
+
+  parameters:
+    CompanyID: {name: companyID, in: path, required: true, schema: {type: string, format: uuid}}
+    ProductID: {name: productID, in: path, required: true, schema: {type: string, format: uuid}}
+    OptionID: {name: optionID, in: path, required: true, schema: {type: string, format: uuid}}
+    ValueID: {name: valueID, in: path, required: true, schema: {type: string, format: uuid}}
+    VariantID: {name: variantID, in: path, required: true, schema: {type: string, format: uuid}}
+    MediaID: {name: mediaID, in: path, required: true, schema: {type: string, format: uuid}}
+    UserID: {name: userID, in: path, required: true, schema: {type: string, format: uuid}}
+    DesignID: {name: designID, in: path, required: true, schema: {type: string, format: uuid}}
+    ItemID: {name: itemID, in: path, required: true, schema: {type: string, format: uuid}}
+    RequestID: {name: requestID, in: path, required: true, schema: {type: string, format: uuid}}
+    TemplateID: {name: templateID, in: path, required: true, schema: {type: string, format: uuid}}
+    Limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+    Cursor: {name: cursor, in: query, description: '`next_cursor` from the previous page, unchanged.', schema: {type: string}}
+
+  responses:
+    NoContent: {description: Done; no body.}
+    BadRequest:
+      description: Malformed body or invalid fields (`bad_request`, `validation_failed` with `details`, `invalid_file`).
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Unauthorized:
+      description: No valid session (`unauthenticated`) or wrong credentials (`invalid_credentials`).
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Forbidden:
+      description: Authenticated but not allowed (`forbidden`, `forbidden_origin`).
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    NotFound:
+      description: Does not exist, or belongs to someone else (`not_found`). The two are indistinguishable on purpose.
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Conflict:
+      description: The current state does not allow it; see `error.code`.
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    TooLarge:
+      description: Body or file too large (`payload_too_large`).
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    RateLimited:
+      description: Too many attempts (`rate_limited`).
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string, examples: [validation_failed]}
+            message: {type: string}
+            details: {type: object, additionalProperties: {type: string}, description: 'Field -> problem; only for validation_failed.'}
+            request_id: {type: string}
+    Health:
+      type: object
+      properties: {status: {type: string, examples: [ok]}}
+    Price:
+      type: object
+      properties:
+        amount_minor: {type: integer, format: int64, examples: [1250000]}
+        currency: {type: string, examples: [ETB]}
+    Dimensions:
+      type: object
+      properties:
+        width_mm: {type: integer}
+        depth_mm: {type: integer}
+        height_mm: {type: integer}
+
+    # ---- auth & companies ----
+    User:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string}
+        full_name: {type: string}
+        status: {type: string, enum: [active, disabled]}
+        is_platform_admin: {type: boolean}
+        created_at: {type: string, format: date-time}
+    Membership:
+      type: object
+      properties:
+        company: {type: object, properties: {id: {type: string}, name: {type: string}, slug: {type: string}, status: {type: string}}}
+        role: {type: string, enum: [company_admin, company_staff]}
+        status: {type: string, enum: [active, disabled]}
+    Account:
+      type: object
+      properties:
+        user: {$ref: '#/components/schemas/User'}
+        memberships: {type: array, items: {$ref: '#/components/schemas/Membership'}}
+    Credentials:
+      type: object
+      required: [email, password]
+      properties: {email: {type: string}, password: {type: string}}
+    NewUser:
+      type: object
+      required: [full_name, email, password]
+      properties:
+        full_name: {type: string, maxLength: 100}
+        email: {type: string}
+        password: {type: string, minLength: 12, maxLength: 128}
+    Company:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        slug: {type: string}
+        status: {type: string, enum: [pending, active, suspended]}
+        currency: {type: string, examples: [ETB]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    Member:
+      type: object
+      properties:
+        user_id: {type: string, format: uuid}
+        email: {type: string}
+        full_name: {type: string}
+        role: {type: string, enum: [company_admin, company_staff]}
+        status: {type: string, enum: [active, disabled]}
+        joined_at: {type: string, format: date-time}
+
+    # ---- catalog ----
+    Category:
+      type: object
+      properties: {slug: {type: string}, name: {type: string}}
+    Product:
+      type: object
+      description: Public view of a product.
+      properties:
+        id: {type: string, format: uuid}
+        slug: {type: string}
+        name: {type: string}
+        description: {type: string}
+        category: {$ref: '#/components/schemas/Category'}
+        company: {type: object, properties: {slug: {type: string}, name: {type: string}}}
+        price: {$ref: '#/components/schemas/Price'}
+        dimensions: {$ref: '#/components/schemas/Dimensions'}
+        weight_g: {type: [integer, 'null']}
+        published_at: {type: [string, 'null'], format: date-time}
+        primary_image_url: {type: [string, 'null']}
+    CompanyProduct:
+      allOf:
+        - $ref: '#/components/schemas/Product'
+        - type: object
+          properties:
+            status: {type: string, enum: [draft, published, archived]}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+    ProductInput:
+      type: object
+      required: [category, name, price_minor, width_mm, depth_mm, height_mm]
+      properties:
+        category: {type: string, description: Category slug.}
+        name: {type: string, maxLength: 200}
+        slug: {type: string, description: Optional; derived from the name.}
+        description: {type: string, maxLength: 5000}
+        price_minor: {type: integer, format: int64, minimum: 0}
+        width_mm: {type: integer, minimum: 1, maximum: 10000}
+        depth_mm: {type: integer, minimum: 1, maximum: 10000}
+        height_mm: {type: integer, minimum: 1, maximum: 10000}
+        weight_g: {type: [integer, 'null'], minimum: 1}
+    ProductPage:
+      type: object
+      properties:
+        products: {type: array, items: {$ref: '#/components/schemas/Product'}}
+        next_cursor: {type: [string, 'null']}
+    CompanyProductPage:
+      type: object
+      properties:
+        products: {type: array, items: {$ref: '#/components/schemas/CompanyProduct'}}
+        next_cursor: {type: [string, 'null']}
+
+    # ---- variants ----
+    OptionValue:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        position: {type: integer}
+        swatch_hex: {type: [string, 'null'], examples: ['#A3B18A']}
+        material_key: {type: [string, 'null'], description: GLTF material name in the product model.}
+    Option:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        position: {type: integer}
+        values: {type: array, items: {$ref: '#/components/schemas/OptionValue'}}
+    Variant:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        sku: {type: string}
+        price: {$ref: '#/components/schemas/Price'}
+        available: {type: boolean}
+        position: {type: integer}
+        options: {type: object, additionalProperties: {type: string}, examples: [{Fabric: Linen}]}
+        value_ids: {type: array, items: {type: string, format: uuid}}
+    Configuration:
+      type: object
+      properties:
+        options: {type: array, items: {$ref: '#/components/schemas/Option'}}
+        variants: {type: array, items: {$ref: '#/components/schemas/Variant'}}
+    ValueInput:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, maxLength: 50}
+        swatch_hex: {type: [string, 'null']}
+        material_key: {type: [string, 'null']}
+
+    # ---- media ----
+    Media:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        kind: {type: string, enum: [image, model]}
+        url: {type: string, description: Public URL (works once the product is published).}
+        content_type: {type: string, enum: [image/jpeg, image/png, image/webp, model/gltf-binary]}
+        size_bytes: {type: integer}
+        width: {type: integer}
+        height: {type: integer}
+        alt_text: {type: string}
+        position: {type: integer}
+        is_primary: {type: boolean}
+        materials: {type: array, items: {type: string}}
+        variants: {type: array, items: {type: string}}
+    CompanyMedia:
+      allOf:
+        - $ref: '#/components/schemas/Media'
+        - type: object
+          properties:
+            file_url: {type: string, description: Member-only download URL (any product status).}
+            original_filename: {type: string}
+            sha256: {type: string}
+            created_at: {type: string, format: date-time}
+    PublicProductDetail:
+      allOf:
+        - $ref: '#/components/schemas/Product'
+        - $ref: '#/components/schemas/Configuration'
+        - type: object
+          properties:
+            images: {type: array, items: {$ref: '#/components/schemas/Media'}}
+            model: {oneOf: [{$ref: '#/components/schemas/Media'}, {type: 'null'}]}
+    Upload:
+      type: object
+      required: [file]
+      properties:
+        file: {type: string, format: binary}
+        alt_text: {type: string, maxLength: 300, description: Images only.}
+
+    # ---- rooms & designs ----
+    Opening:
+      type: object
+      properties:
+        type: {type: string, enum: [door, window]}
+        wall: {type: string, enum: [north, south, east, west]}
+        offset_mm: {type: integer}
+        width_mm: {type: integer}
+        height_mm: {type: integer}
+        sill_mm: {type: integer}
+    Features:
+      type: object
+      additionalProperties: false
+      properties:
+        wall_color: {type: string, examples: ['#F2EFE9']}
+        floor: {type: string, enum: [oak, tile, carpet, concrete]}
+        openings: {type: array, maxItems: 20, items: {$ref: '#/components/schemas/Opening'}}
+    Room:
+      type: object
+      properties:
+        width_mm: {type: integer, minimum: 1000, maximum: 30000}
+        depth_mm: {type: integer, minimum: 1000, maximum: 30000}
+        height_mm: {type: integer, minimum: 2000, maximum: 6000}
+    RoomTemplate:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        slug: {type: string}
+        name: {type: string}
+        description: {type: string}
+        room: {$ref: '#/components/schemas/Room'}
+        features: {$ref: '#/components/schemas/Features'}
+        status: {type: string, enum: [draft, published], description: Admin responses only.}
+        sort_order: {type: integer}
+        updated_at: {type: string, format: date-time}
+    DesignSummary:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        template_id: {type: [string, 'null'], format: uuid}
+        room: {$ref: '#/components/schemas/Room'}
+        item_count: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    DesignItem:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        position: {type: object, properties: {x_mm: {type: integer}, y_mm: {type: integer}, z_mm: {type: integer}}}
+        rotation_deg: {type: number, minimum: 0, exclusiveMaximum: 360}
+        available: {type: boolean}
+        product:
+          type: object
+          properties:
+            id: {type: string, format: uuid}
+            slug: {type: string}
+            name: {type: string}
+            company_slug: {type: string}
+            company_name: {type: string}
+            variant_id: {type: [string, 'null'], format: uuid}
+            options: {type: object, additionalProperties: {type: string}}
+            price: {$ref: '#/components/schemas/Price'}
+            dimensions: {$ref: '#/components/schemas/Dimensions'}
+            primary_image_url: {type: [string, 'null']}
+            model_url: {type: [string, 'null']}
+        updated_at: {type: string, format: date-time}
+    DesignDetail:
+      allOf:
+        - $ref: '#/components/schemas/DesignSummary'
+        - type: object
+          properties:
+            features: {$ref: '#/components/schemas/Features'}
+            items: {type: array, items: {$ref: '#/components/schemas/DesignItem'}}
+            estimate:
+              type: object
+              description: Current prices of available items per seller and currency. Not a quote.
+              properties:
+                note: {type: string}
+                item_count: {type: integer}
+                unavailable_count: {type: integer}
+                totals:
+                  type: array
+                  items: {type: object, properties: {company_slug: {type: string}, company_name: {type: string}, currency: {type: string}, amount_minor: {type: integer}, items: {type: integer}}}
+    ItemInput:
+      type: object
+      required: [product_id, x_mm, z_mm]
+      properties:
+        product_id: {type: string, format: uuid}
+        variant_id: {type: [string, 'null'], format: uuid, description: Required when the product has options.}
+        x_mm: {type: integer}
+        y_mm: {type: integer, default: 0}
+        z_mm: {type: integer}
+        rotation_deg: {type: number, default: 0}
+
+    # ---- quotes ----
+    QuoteLine:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        product_id: {type: [string, 'null']}
+        variant_id: {type: [string, 'null']}
+        product_name: {type: string}
+        product_slug: {type: string}
+        sku: {type: [string, 'null']}
+        options: {type: object, additionalProperties: {type: string}}
+        dimensions: {$ref: '#/components/schemas/Dimensions'}
+        quantity: {type: integer, minimum: 1, maximum: 999}
+        list_unit_price_minor: {type: integer, format: int64}
+        quoted_unit_price_minor: {type: [integer, 'null'], format: int64}
+        note: {type: string}
+    QuoteRequest:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        submission_id: {type: string, format: uuid}
+        design_id: {type: [string, 'null'], format: uuid}
+        status: {type: string, enum: [pending, reviewing, quoted, accepted, rejected, cancelled, declined]}
+        revision: {type: integer, description: '0 until quoted; +1 per quote sent. Send it back when accepting.'}
+        final: {type: boolean}
+        company: {type: object, properties: {id: {type: string}, slug: {type: string}, name: {type: string}}}
+        customer: {type: object, properties: {name: {type: string}, email: {type: string}, phone: {type: string}, delivery_address: {type: string}, note: {type: string}}}
+        currency: {type: string}
+        list_total_minor: {type: integer, format: int64}
+        quoted_total_minor: {type: [integer, 'null'], format: int64}
+        valid_until: {type: [string, 'null'], format: date}
+        expired: {type: boolean}
+        company_note: {type: string}
+        line_count: {type: integer}
+        lines: {type: array, items: {$ref: '#/components/schemas/QuoteLine'}, description: Detail responses only.}
+        charges: {type: array, items: {type: object, properties: {label: {type: string}, amount_minor: {type: integer}}}}
+        submitted_at: {type: string, format: date-time}
+        quoted_at: {type: [string, 'null'], format: date-time}
+        decided_at: {type: [string, 'null'], format: date-time}
+    QuotePage:
+      type: object
+      properties:
+        requests: {type: array, items: {$ref: '#/components/schemas/QuoteRequest'}}
+        next_cursor: {type: [string, 'null']}
+    Submission:
+      type: object
+      properties:
+        submission_id: {type: string, format: uuid}
+        requests: {type: array, items: {$ref: '#/components/schemas/QuoteRequest'}}
+        skipped: {type: array, items: {type: object, properties: {item_id: {type: string}, product_name: {type: string}}}}
+    Contact:
+      type: object
+      properties:
+        contact_phone: {type: string, maxLength: 40}
+        delivery_address: {type: string, maxLength: 500}
+        note: {type: string, maxLength: 2000}
+
+paths:
+  # ---------------------------------------------------------------- health
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness (does not touch the database)
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
+  /health/database:
+    get:
+      tags: [health]
+      summary: Database readiness
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
+        '503': {description: Database unavailable (`service_unavailable`).}
+  /openapi.yaml:
+    get:
+      tags: [health]
+      summary: This document
+      responses:
+        '200': {description: OpenAPI 3.1 YAML}
+
+  # ---------------------------------------------------------------- auth
+  /v1/auth/register:
+    post:
+      tags: [auth]
+      summary: Create a customer account and sign in
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/NewUser'}}}}
+      responses:
+        '201': {description: Created; sets the session cookie., content: {application/json: {schema: {$ref: '#/components/schemas/Account'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /v1/auth/register-company:
+    post:
+      tags: [auth]
+      summary: Register a company and its first admin, and sign in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/NewUser'
+                - type: object
+                  required: [company_name, company_slug]
+                  properties: {company_name: {type: string}, company_slug: {type: string}}
+      responses:
+        '201': {description: Created; sets the session cookie., content: {application/json: {schema: {$ref: '#/components/schemas/Account'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {description: '`email_taken` or `slug_taken`.'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Sign in (rotates the session)
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Credentials'}}}}
+      responses:
+        '200': {description: Signed in; sets a new session cookie., content: {application/json: {schema: {$ref: '#/components/schemas/Account'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Sign out this session (idempotent)
+      responses:
+        '204': {$ref: '#/components/responses/NoContent'}
+  /v1/auth/logout-all:
+    post:
+      tags: [auth]
+      summary: Sign out every session of the user, on every device
+      security: [{session: []}]
+      responses:
+        '204': {$ref: '#/components/responses/NoContent'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /v1/auth/password:
+    post:
+      tags: [auth]
+      summary: Change password (revokes every session, issues a new one)
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [current_password, new_password], properties: {current_password: {type: string}, new_password: {type: string, minLength: 12}}}
+      responses:
+        '204': {description: Changed; sets a new session cookie.}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Current user and memberships
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Account'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  # ---------------------------------------------------------------- companies
+  /v1/companies/{companyID}:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}]
+    get:
+      tags: [companies]
+      summary: Company profile (any active member)
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Company'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [companies]
+      summary: Update name and/or currency (company_admin)
+      description: The currency cannot change once the company has products (`currency_locked`).
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, properties: {name: {type: string}, currency: {type: string}}}}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Company'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/companies/{companyID}/members:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}]
+    get:
+      tags: [companies]
+      summary: List members (any active member)
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {type: object, properties: {members: {type: array, items: {$ref: '#/components/schemas/Member'}}}}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      tags: [companies]
+      summary: Create a new account as a member (company_admin)
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/NewUser'
+                - {type: object, required: [role], properties: {role: {type: string, enum: [company_admin, company_staff]}}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Member'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: '`email_taken`.'}
+  /v1/companies/{companyID}/members/{userID}:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/UserID'}]
+    patch:
+      tags: [companies]
+      summary: Change a member's role and/or status (company_admin)
+      description: The last active admin cannot be demoted or disabled (`last_admin`).
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, properties: {role: {type: string, enum: [company_admin, company_staff]}, status: {type: string, enum: [active, disabled]}}}}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Member'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+
+  # ---------------------------------------------------------------- catalog (company)
+  /v1/companies/{companyID}/products:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}]
+    get:
+      tags: [catalog]
+      summary: The company's products, any status (newest first)
+      security: [{session: []}]
+      parameters:
+        - {name: status, in: query, schema: {type: string, enum: [draft, published, archived]}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: q, in: query, description: Name contains (case-insensitive)., schema: {type: string}}
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyProductPage'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+    post:
+      tags: [catalog]
+      summary: Create a draft product
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductInput'}}}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyProduct'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409': {description: '`slug_taken`.'}
+  /v1/companies/{companyID}/products/{productID}:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
+    get:
+      tags: [catalog]
+      summary: One of the company's products
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyProduct'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [catalog]
+      summary: Edit fields (send only what changes; `weight_g` null clears it)
+      description: '`slug` only while draft (`slug_locked`); `price_minor` not when variants exist (`price_from_variants`).'
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductInput'}}}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyProduct'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      tags: [catalog]
+      summary: Delete a draft (and its media files)
+      security: [{session: []}]
+      responses:
+        '204': {$ref: '#/components/responses/NoContent'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: '`product_not_draft` or `product_in_use`.'}
+  /v1/companies/{companyID}/products/{productID}/publish:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
+    post:
+      tags: [catalog]
+      summary: draft -> published
+      description: A product with options needs an available variant (`no_available_variants`).
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyProduct'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/companies/{companyID}/products/{productID}/archive:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
+    post:
+      tags: [catalog]
+      summary: published -> archived
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyProduct'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/companies/{companyID}/products/{productID}/restore:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
+    post:
+      tags: [catalog]
+      summary: archived -> draft
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyProduct'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+
+  # ---------------------------------------------------------------- variants
+  /v1/companies/{companyID}/products/{productID}/configuration:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
+    get:
+      tags: [variants]
+      summary: Options, values and variants
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Configuration'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/companies/{companyID}/products/{productID}/options:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
+    post:
+      tags: [variants]
+      summary: Add an option with its values (draft without variants only; max 3)
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, required: [name, values], properties: {name: {type: string}, values: {type: array, maxItems: 30, items: {$ref: '#/components/schemas/ValueInput'}}}}}}
+      responses:
+        '201': {description: Updated configuration, content: {application/json: {schema: {$ref: '#/components/schemas/Configuration'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: '`options_locked`, `option_name_taken` or `limit_reached`.'}
+  /v1/companies/{companyID}/products/{productID}/options/{optionID}:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}, {$ref: '#/components/parameters/OptionID'}]
+    patch:
+      tags: [variants]
+      summary: Rename or reorder an option
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {name: {type: string}, position: {type: integer}}}}}}
+      responses:
+        '200': {description: Updated configuration, content: {application/json: {schema: {$ref: '#/components/schemas/Configuration'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      tags: [variants]
+      summary: Delete an option (draft without variants only)
+      security: [{session: []}]
+      responses:
+        '200': {description: Updated configuration, content: {application/json: {schema: {$ref: '#/components/schemas/Configuration'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/companies/{companyID}/products/{productID}/options/{optionID}/values:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}, {$ref: '#/components/parameters/OptionID'}]
+    post:
+      tags: [variants]
+      summary: Add a value (allowed any time; max 30)
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ValueInput'}}}}
+      responses:
+        '201': {description: Updated configuration, content: {application/json: {schema: {$ref: '#/components/schemas/Configuration'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/companies/{companyID}/products/{productID}/options/{optionID}/values/{valueID}:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}, {$ref: '#/components/parameters/OptionID'}, {$ref: '#/components/parameters/ValueID'}]
+    patch:
+      tags: [variants]
+      summary: Edit a value (`swatch_hex`/`material_key` null clears)
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ValueInput'}}}}
+      responses:
+        '200': {description: Updated configuration, content: {application/json: {schema: {$ref: '#/components/schemas/Configuration'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      tags: [variants]
+      summary: Delete an unused value (`value_in_use`, `last_value`)
+      security: [{session: []}]
+      responses:
+        '200': {description: Updated configuration, content: {application/json: {schema: {$ref: '#/components/schemas/Configuration'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/companies/{companyID}/products/{productID}/variants:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
+    post:
+      tags: [variants]
+      summary: Add a variant (values chosen by name; max 100)
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [sku, price_minor, options], properties: {sku: {type: string}, price_minor: {type: integer}, available: {type: boolean, default: true}, options: {type: object, additionalProperties: {type: string}, examples: [{Fabric: Linen, Colour: Grey}]}}}
+      responses:
+        '201': {description: Updated configuration, content: {application/json: {schema: {$ref: '#/components/schemas/Configuration'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: '`sku_taken`, `duplicate_combination` or `limit_reached`.'}
+  /v1/companies/{companyID}/products/{productID}/variants/generate:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
+    post:
+      tags: [variants]
+      summary: Create every missing combination at one price
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [price_minor], properties: {price_minor: {type: integer}, available: {type: boolean}}}}}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {type: object, properties: {created: {type: integer}, configuration: {$ref: '#/components/schemas/Configuration'}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/companies/{companyID}/products/{productID}/variants/{variantID}:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}, {$ref: '#/components/parameters/VariantID'}]
+    patch:
+      tags: [variants]
+      summary: Change SKU, price, availability or position
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {sku: {type: string}, price_minor: {type: integer}, available: {type: boolean}, position: {type: integer}}}}}}
+      responses:
+        '200': {description: Updated configuration, content: {application/json: {schema: {$ref: '#/components/schemas/Configuration'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      tags: [variants]
+      summary: Delete a variant (draft products only; `variant_in_use` if placed in designs)
+      security: [{session: []}]
+      responses:
+        '200': {description: Updated configuration, content: {application/json: {schema: {$ref: '#/components/schemas/Configuration'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+
+  # ---------------------------------------------------------------- media
+  /v1/companies/{companyID}/products/{productID}/media:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
+    get:
+      tags: [media]
+      summary: Gallery, model and material check
+      security: [{session: []}]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images: {type: array, items: {$ref: '#/components/schemas/CompanyMedia'}}
+                  model: {oneOf: [{$ref: '#/components/schemas/CompanyMedia'}, {type: 'null'}]}
+                  material_check: {type: object, properties: {model_present: {type: boolean}, missing_material_keys: {type: array, items: {type: string}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/companies/{companyID}/products/{productID}/images:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
+    post:
+      tags: [media]
+      summary: Upload an image (JPEG/PNG/WebP, max 10 MB, 20 per product)
+      security: [{session: []}]
+      requestBody: {required: true, content: {multipart/form-data: {schema: {$ref: '#/components/schemas/Upload'}}}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyMedia'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/TooLarge'}
+  /v1/companies/{companyID}/products/{productID}/images/{mediaID}:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}, {$ref: '#/components/parameters/MediaID'}]
+    patch:
+      tags: [media]
+      summary: Edit alt text / position, or make primary
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {alt_text: {type: string}, position: {type: integer}, is_primary: {type: boolean, const: true}}}}}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyMedia'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [media]
+      summary: Delete an image (the next becomes primary if needed)
+      security: [{session: []}]
+      responses:
+        '204': {$ref: '#/components/responses/NoContent'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/companies/{companyID}/products/{productID}/model:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
+    put:
+      tags: [media]
+      summary: Upload or replace the GLB model (max 50 MB)
+      security: [{session: []}]
+      requestBody: {required: true, content: {multipart/form-data: {schema: {$ref: '#/components/schemas/Upload'}}}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyMedia'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '413': {$ref: '#/components/responses/TooLarge'}
+    delete:
+      tags: [media]
+      summary: Remove the model
+      security: [{session: []}]
+      responses:
+        '204': {$ref: '#/components/responses/NoContent'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/companies/{companyID}/media/{mediaID}/file:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/MediaID'}]
+    get:
+      tags: [media]
+      summary: Download a media file (members; any product status; never cached)
+      security: [{session: []}]
+      responses:
+        '200': {description: File bytes}
+        '206': {description: Partial content (Range request)}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/media/{mediaID}:
+    parameters: [{$ref: '#/components/parameters/MediaID'}]
+    get:
+      tags: [media]
+      summary: Public media file (published products of active companies)
+      description: Immutable — cached for a year; supports Range and If-None-Match.
+      responses:
+        '200': {description: File bytes}
+        '206': {description: Partial content (Range request)}
+        '304': {description: Not modified}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  # ---------------------------------------------------------------- catalog (public)
+  /v1/catalog/categories:
+    get:
+      tags: [catalog]
+      summary: Platform-wide categories
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {type: object, properties: {categories: {type: array, items: {$ref: '#/components/schemas/Category'}}}}}}}
+  /v1/catalog/products:
+    get:
+      tags: [catalog]
+      summary: Browse published products
+      parameters:
+        - {name: category, in: query, schema: {type: string}}
+        - {name: company, in: query, description: Company slug., schema: {type: string}}
+        - {name: q, in: query, schema: {type: string}}
+        - {name: currency, in: query, description: Required with price filters., schema: {type: string}}
+        - {name: min_price, in: query, schema: {type: integer}}
+        - {name: max_price, in: query, schema: {type: integer}}
+        - {name: sort, in: query, schema: {type: string, enum: [newest, price_asc, price_desc], default: newest}}
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/ProductPage'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /v1/catalog/products/{companySlug}/{productSlug}:
+    parameters:
+      - {name: companySlug, in: path, required: true, schema: {type: string}}
+      - {name: productSlug, in: path, required: true, schema: {type: string}}
+    get:
+      tags: [catalog]
+      summary: Public product page with options, variants and media
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/PublicProductDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  # ---------------------------------------------------------------- rooms
+  /v1/room-templates:
+    get:
+      tags: [rooms]
+      summary: Published room templates
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {type: object, properties: {templates: {type: array, items: {$ref: '#/components/schemas/RoomTemplate'}}}}}}}
+  /v1/room-templates/{slug}:
+    parameters: [{name: slug, in: path, required: true, schema: {type: string}}]
+    get:
+      tags: [rooms]
+      summary: One published room template
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/RoomTemplate'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  # ---------------------------------------------------------------- designs
+  /v1/designs:
+    get:
+      tags: [designs]
+      summary: My designs (most recently edited first)
+      security: [{session: []}]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {type: object, properties: {designs: {type: array, items: {$ref: '#/components/schemas/DesignSummary'}}, next_cursor: {type: [string, 'null']}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    post:
+      tags: [designs]
+      summary: Start a design from a template or a custom room
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string, maxLength: 100}
+                template: {type: string, description: Template slug (or send a custom room instead).}
+                width_mm: {type: integer}
+                depth_mm: {type: integer}
+                height_mm: {type: integer}
+                features: {$ref: '#/components/schemas/Features'}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/DesignDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /v1/designs/{designID}:
+    parameters: [{$ref: '#/components/parameters/DesignID'}]
+    get:
+      tags: [designs]
+      summary: A design with items and estimate (owner only)
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/DesignDetail'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [designs]
+      summary: Rename, resize or change features
+      description: Resizing that would leave items outside is `items_outside_room`.
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, properties: {name: {type: string}, width_mm: {type: integer}, depth_mm: {type: integer}, height_mm: {type: integer}, features: {$ref: '#/components/schemas/Features'}}}}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/DesignDetail'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+    delete:
+      tags: [designs]
+      summary: Delete a design
+      security: [{session: []}]
+      responses:
+        '204': {$ref: '#/components/responses/NoContent'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/designs/{designID}/items:
+    parameters: [{$ref: '#/components/parameters/DesignID'}]
+    post:
+      tags: [designs]
+      summary: Place a product (published; variant required when it has options; max 200)
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ItemInput'}}}}
+      responses:
+        '201': {description: Placed, content: {application/json: {schema: {$ref: '#/components/schemas/DesignItem'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/designs/{designID}/items/{itemID}:
+    parameters: [{$ref: '#/components/parameters/DesignID'}, {$ref: '#/components/parameters/ItemID'}]
+    patch:
+      tags: [designs]
+      summary: Move, rotate or change the variant
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {x_mm: {type: integer}, y_mm: {type: integer}, z_mm: {type: integer}, rotation_deg: {type: number}, variant_id: {type: string, format: uuid}}}}}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/DesignItem'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [designs]
+      summary: Remove an item
+      security: [{session: []}]
+      responses:
+        '204': {$ref: '#/components/responses/NoContent'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  # ---------------------------------------------------------------- quotes (customer)
+  /v1/quote-requests/from-design:
+    post:
+      tags: [quotes]
+      summary: Request quotes for a design (one request per seller)
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - {type: object, required: [design_id], properties: {design_id: {type: string, format: uuid}}}
+                - $ref: '#/components/schemas/Contact'
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Submission'}}}}
+        '400': {description: 'Invalid input or `nothing_available`.'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /v1/quote-requests:
+    get:
+      tags: [quotes]
+      summary: My quote requests (newest first)
+      security: [{session: []}]
+      parameters:
+        - {name: status, in: query, schema: {type: string, enum: [pending, reviewing, quoted, accepted, rejected, cancelled, declined]}}
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QuotePage'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+    post:
+      tags: [quotes]
+      summary: Request a quote for products from one seller
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      minItems: 1
+                      maxItems: 50
+                      items: {type: object, required: [product_id, quantity], properties: {product_id: {type: string, format: uuid}, variant_id: {type: string, format: uuid}, quantity: {type: integer, minimum: 1, maximum: 999}}}
+                - $ref: '#/components/schemas/Contact'
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Submission'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+  /v1/quote-requests/{requestID}:
+    parameters: [{$ref: '#/components/parameters/RequestID'}]
+    get:
+      tags: [quotes]
+      summary: One of my requests, with lines and charges
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QuoteRequest'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/quote-requests/{requestID}/accept:
+    parameters: [{$ref: '#/components/parameters/RequestID'}]
+    post:
+      tags: [quotes]
+      summary: Accept the quote (quoted -> accepted)
+      description: Send the revision you reviewed; `stale_revision` if it changed, `quote_expired` after valid_until.
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [revision], properties: {revision: {type: integer}}}}}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QuoteRequest'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/quote-requests/{requestID}/reject:
+    parameters: [{$ref: '#/components/parameters/RequestID'}]
+    post:
+      tags: [quotes]
+      summary: Reject the quote (quoted -> rejected)
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QuoteRequest'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/quote-requests/{requestID}/cancel:
+    parameters: [{$ref: '#/components/parameters/RequestID'}]
+    post:
+      tags: [quotes]
+      summary: Cancel (pending/reviewing/quoted -> cancelled)
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QuoteRequest'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+
+  # ---------------------------------------------------------------- quotes (company)
+  /v1/companies/{companyID}/quote-requests:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}]
+    get:
+      tags: [quotes]
+      summary: Requests to the company (any active member)
+      security: [{session: []}]
+      parameters:
+        - {name: status, in: query, schema: {type: string}}
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QuotePage'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/companies/{companyID}/quote-requests/{requestID}:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/RequestID'}]
+    get:
+      tags: [quotes]
+      summary: One request to the company
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QuoteRequest'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /v1/companies/{companyID}/quote-requests/{requestID}/review:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/RequestID'}]
+    post:
+      tags: [quotes]
+      summary: Start reviewing (pending -> reviewing)
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QuoteRequest'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/companies/{companyID}/quote-requests/{requestID}/quote:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/RequestID'}]
+    put:
+      tags: [quotes]
+      summary: Send or revise the quote (every line priced)
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lines]
+              properties:
+                lines: {type: array, items: {type: object, required: [line_id, unit_price_minor], properties: {line_id: {type: string, format: uuid}, unit_price_minor: {type: integer, minimum: 0}, note: {type: string}}}}
+                charges: {type: array, maxItems: 20, items: {type: object, required: [label, amount_minor], properties: {label: {type: string}, amount_minor: {type: integer, minimum: 0}}}}
+                valid_until: {type: string, format: date}
+                note: {type: string}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QuoteRequest'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /v1/companies/{companyID}/quote-requests/{requestID}/decline:
+    parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/RequestID'}]
+    post:
+      tags: [quotes]
+      summary: Decline (pending/reviewing -> declined)
+      security: [{session: []}]
+      requestBody: {content: {application/json: {schema: {type: object, properties: {note: {type: string}}}}}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QuoteRequest'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+
+  # ---------------------------------------------------------------- platform admin
+  /v1/admin/companies:
+    get:
+      tags: [admin]
+      summary: All companies (platform admin)
+      security: [{session: []}]
+      parameters: [{name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {type: object, properties: {companies: {type: array, items: {$ref: '#/components/schemas/Company'}}}}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /v1/admin/room-templates:
+    get:
+      tags: [admin]
+      summary: All room templates incl. drafts (platform admin)
+      security: [{session: []}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {type: object, properties: {templates: {type: array, items: {$ref: '#/components/schemas/RoomTemplate'}}}}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [admin]
+      summary: Create a room template (draft by default)
+      security: [{session: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/Room'
+                - type: object
+                  required: [slug, name, width_mm, depth_mm, height_mm]
+                  properties: {slug: {type: string}, name: {type: string}, description: {type: string}, features: {$ref: '#/components/schemas/Features'}, status: {type: string, enum: [draft, published]}, sort_order: {type: integer}}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/RoomTemplate'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: '`slug_taken`.'}
+  /v1/admin/room-templates/{templateID}:
+    parameters: [{$ref: '#/components/parameters/TemplateID'}]
+    patch:
+      tags: [admin]
+      summary: Edit or publish a room template
+      security: [{session: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RoomTemplate'}}}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/RoomTemplate'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}

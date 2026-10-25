@@ -12,10 +12,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Joedee43/interior_api/internal/apidocs"
 	"github.com/Joedee43/interior_api/internal/auth"
 	"github.com/Joedee43/interior_api/internal/catalog"
 	"github.com/Joedee43/interior_api/internal/company"
@@ -85,6 +88,8 @@ func run() error {
 		Logger:         log,
 		DB:             pool,
 		AllowedOrigins: cfg.AllowedOrigins,
+		HTTPS:          cfg.CookieSecure(), // production is served over HTTPS
+		Extra:          []func(*gin.Engine){apidocs.Mount},
 		V1Routes: []func(*gin.RouterGroup){
 			authHandler.Mount, companyHandler.Mount, catalogHandler.Mount, designHandler.Mount, quoteHandler.Mount,
 		},
@@ -97,7 +102,10 @@ func run() error {
 		ReadTimeout:       cfg.HTTP.ReadTimeout,
 		WriteTimeout:      cfg.HTTP.WriteTimeout,
 		IdleTimeout:       cfg.HTTP.IdleTimeout,
-		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
+		// Request headers are tiny for this API (a cookie, an Origin); a
+		// 64 KiB cap instead of Go's 1 MiB default bounds per-connection memory.
+		MaxHeaderBytes: 64 << 10,
+		ErrorLog:       slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
 
 	// Bind the port before logging "listening", so a port already in use
@@ -107,6 +115,21 @@ func run() error {
 		return fmt.Errorf("listen on %s: %w", srv.Addr, err)
 	}
 	log.Info("http server listening", slog.String("addr", ln.Addr().String()), slog.String("env", string(cfg.Env)))
+
+	// Background jobs stop when ctx is cancelled (shutdown signal) or when
+	// run returns for any other reason. The WaitGroup makes run wait for
+	// them; this defer is registered after pool.Close's, so (defers run
+	// last-in-first-out) the jobs finish before the pool they use closes.
+	jobsCtx, stopJobs := context.WithCancel(ctx)
+	var jobs sync.WaitGroup
+	defer func() {
+		stopJobs()
+		jobs.Wait()
+	}()
+	// WaitGroup.Go (Go 1.25+) does the Add(1) / defer Done() pairing for us.
+	jobs.Go(func() {
+		authSvc.RunSessionCleanup(jobsCtx, time.Hour, 30*24*time.Hour, log)
+	})
 
 	// Serve blocks, so it runs in its own goroutine and reports back
 	// through a buffered channel (buffered so the goroutine can always

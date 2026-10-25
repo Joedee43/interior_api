@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Joedee43/interior_api/internal/apidocs"
 	"github.com/Joedee43/interior_api/internal/auth"
 	"github.com/Joedee43/interior_api/internal/catalog"
 	"github.com/Joedee43/interior_api/internal/company"
@@ -92,6 +93,7 @@ func New(t *testing.T, opts Options) *Env {
 		Logger:         logger,
 		DB:             pool,
 		AllowedOrigins: []string{Origin},
+		Extra:          []func(*gin.Engine){apidocs.Mount},
 		V1Routes:       []func(*gin.RouterGroup){authH.Mount, companyH.Mount, catalogH.Mount, designH.Mount, quoteH.Mount},
 	})
 	return &Env{T: t, Pool: pool, Router: router, StorageDir: storageDir}
