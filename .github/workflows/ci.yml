@@ -1,0 +1,57 @@
+# Runs on every push and pull request once the repository is pushed to
+# GitHub. It does locally impossible work too: the race detector needs a C
+# compiler, which the Linux runner has.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: interior_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Integration tests skip without it; pgtest applies migrations itself.
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/interior_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then echo "Run gofmt on:"; echo "$unformatted"; exit 1; fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+
+      - name: build
+        run: go build ./...
+
+      - name: test (with race detector)
+        run: go test -race -count=1 ./...
+
+      - name: migrations round trip
+        run: |
+          go run ./cmd/migrate -test status
+          for i in $(seq 1 20); do go run ./cmd/migrate -test down || break; done
+          go run ./cmd/migrate -test up

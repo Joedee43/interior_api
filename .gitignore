@@ -24,3 +24,6 @@ Thumbs.db
 
 # Uploaded media (local storage)
 /storage/
+
+# Local backups (scripts/backup.ps1)
+/backups/

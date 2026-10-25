@@ -7,7 +7,7 @@ Go + Gin + PostgreSQL backend for the immersive furniture platform.
 ```text
 cmd/api/          API server — composition root (config → logger → pool → router → http.Server)
 cmd/migrate/      goose migration runner
-cmd/admin/        operator CLI (grant/revoke/list platform admins)
+cmd/admin/        operator CLI (grant/revoke/list platform admins; cleanup-sessions)
 internal/config/  environment loading + validation
 internal/postgres/  pgxpool setup, WithTx, DBTX (no business SQL); pgtest/ for integration tests
 internal/httpapi/ routing, middleware, JSON error format, origin check, rate limiter, health
@@ -18,8 +18,12 @@ internal/design/  room templates and customer designs (uses catalog via an inter
 internal/quote/   requests for quotation (uses catalog, design and auth via interfaces)
 internal/storage/ file storage interface + local disk store
 internal/apitest/ full-stack test harness (imported only by _test.go files)
+internal/apidocs/ OpenAPI spec served at /openapi.yaml + route drift test
 migrations/       versioned SQL (see migrations/README.md)
 requests/         manual API requests (VS Code REST Client / Postman)
+docs/             operations runbook and security review
+scripts/          backup.ps1
+.github/workflows/ CI: gofmt, vet, staticcheck, tests with -race, migrations
 ```
 
 Domain packages (`account`, `company`, `catalog`, …) are added under
@@ -53,6 +57,7 @@ pool closes).
 gofmt -l .        # must print nothing
 go vet ./...
 go test ./...     # DB integration tests skip unless TEST_DATABASE_URL is set
+go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
 ```
 
 ## API conventions
@@ -272,6 +277,17 @@ customer accepts or rejects. Each request concerns **one company**.
 - Customers see only their own requests; companies only requests to them
   (others get 404). Submissions are limited to ~20/hour per user.
 - Not included yet: notifications, chat, payment/checkout, orders.
+
+## Security, operations and API docs
+
+- `GET /openapi.yaml` — the OpenAPI 3.1 description of every endpoint
+  (`internal/apidocs/openapi.yaml`; a test fails if it drifts from the router).
+- `docs/OPERATIONS.md` — production checklist, backups (`scripts/backup.ps1`),
+  restore, session cleanup, admin commands, CI.
+- `docs/SECURITY_REVIEW.md` — Phase 9 review: fixes, verified controls,
+  accepted risks.
+- Accounts: `POST /v1/auth/logout-all`, `POST /v1/auth/password` (revokes
+  every session).
 
 ## Go version
 
