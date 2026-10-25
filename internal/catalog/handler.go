@@ -423,6 +423,10 @@ func writeError(c *gin.Context, err error) {
 		httpapi.WriteError(c, http.StatusConflict, "no_available_variants", "a product with options needs at least one available variant to be published")
 	case errors.Is(err, ErrVariantNotDeletable):
 		httpapi.WriteError(c, http.StatusConflict, codeNotDraft, "variants can only be deleted while the product is a draft; set available to false instead")
+	case errors.Is(err, ErrProductInUse):
+		httpapi.WriteError(c, http.StatusConflict, "product_in_use", "this product is placed in saved designs; archive it instead")
+	case errors.Is(err, ErrVariantInUse):
+		httpapi.WriteError(c, http.StatusConflict, "variant_in_use", "this variant is placed in saved designs; set available to false instead")
 	case errors.As(err, &fileProblem):
 		httpapi.WriteError(c, http.StatusBadRequest, "invalid_file", fileProblem.Reason)
 	case errors.Is(err, ErrFileTooLarge):

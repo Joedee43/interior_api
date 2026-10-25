@@ -222,10 +222,12 @@ func deleteOption(ctx context.Context, db postgres.DBTX, productID, optionID str
 	return nil
 }
 
-// isForeignKeyViolation reports PostgreSQL error 23503 for constraint.
+// isForeignKeyViolation reports a foreign key violation of constraint.
+// PostgreSQL uses two codes: 23503 (foreign_key_violation, NO ACTION and
+// deferred checks) and 23001 (restrict_violation, ON DELETE RESTRICT).
 func isForeignKeyViolation(err error, constraint string) bool {
 	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.ConstraintName == constraint
+	return errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23001") && pgErr.ConstraintName == constraint
 }
 
 func deleteValue(ctx context.Context, db postgres.DBTX, optionID, valueID string) error {

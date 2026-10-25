@@ -298,6 +298,11 @@ func (s *Service) Delete(ctx context.Context, actor company.Member, id string) e
 		_, err = deleteDraft(ctx, tx, actor.CompanyID, id)
 		return err
 	})
+	// Placed in a saved design: the product row (or, via the cascade, one
+	// of its variants) is still referenced by design_items.
+	if isForeignKeyViolation(err, "design_items_product_fkey") || isForeignKeyViolation(err, "design_items_variant_fkey") {
+		return ErrProductInUse
+	}
 	if err != nil {
 		return err
 	}

@@ -483,7 +483,7 @@ func (s *Service) UpdateVariant(ctx context.Context, actor company.Member, produ
 // published, its variants may be referenced by saved designs and quotes,
 // so they are switched off (available=false) instead.
 func (s *Service) DeleteVariant(ctx context.Context, actor company.Member, productID, variantID string) (Configuration, error) {
-	return s.mutate(ctx, actor, productID, func(tx pgx.Tx, cfg Configuration, status, _ string) error {
+	cfg, err := s.mutate(ctx, actor, productID, func(tx pgx.Tx, cfg Configuration, status, _ string) error {
 		if _, ok := findVariant(cfg, variantID); !ok {
 			return ErrVariantNotFound
 		}
@@ -495,6 +495,10 @@ func (s *Service) DeleteVariant(ctx context.Context, actor company.Member, produ
 		}
 		return syncFromPrice(ctx, tx, productID)
 	})
+	if isForeignKeyViolation(err, "design_items_variant_fkey") {
+		return Configuration{}, ErrVariantInUse
+	}
+	return cfg, err
 }
 
 // ---- public -----------------------------------------------------------------
