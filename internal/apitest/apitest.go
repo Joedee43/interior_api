@@ -27,6 +27,7 @@ import (
 	"github.com/Joedee43/interior_api/internal/design"
 	"github.com/Joedee43/interior_api/internal/httpapi"
 	"github.com/Joedee43/interior_api/internal/postgres/pgtest"
+	"github.com/Joedee43/interior_api/internal/quote"
 	"github.com/Joedee43/interior_api/internal/storage"
 )
 
@@ -82,13 +83,16 @@ func New(t *testing.T, opts Options) *Env {
 	}
 	catalogSvc := catalog.NewService(pool, files, logger)
 	catalogH := catalog.NewHandler(catalogSvc, authH.RequireSession(), companyH.RequireMember())
-	designH := design.NewHandler(design.NewService(pool, catalogSvc), authH.RequireSession())
+	designSvc := design.NewService(pool, catalogSvc)
+	designH := design.NewHandler(designSvc, authH.RequireSession())
+	quoteH := quote.NewHandler(quote.NewService(pool, catalogSvc, designSvc, authSvc),
+		authH.RequireSession(), companyH.RequireMember(), generous())
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Logger:         logger,
 		DB:             pool,
 		AllowedOrigins: []string{Origin},
-		V1Routes:       []func(*gin.RouterGroup){authH.Mount, companyH.Mount, catalogH.Mount, designH.Mount},
+		V1Routes:       []func(*gin.RouterGroup){authH.Mount, companyH.Mount, catalogH.Mount, designH.Mount, quoteH.Mount},
 	})
 	return &Env{T: t, Pool: pool, Router: router, StorageDir: storageDir}
 }

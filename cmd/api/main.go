@@ -23,6 +23,7 @@ import (
 	"github.com/Joedee43/interior_api/internal/design"
 	"github.com/Joedee43/interior_api/internal/httpapi"
 	"github.com/Joedee43/interior_api/internal/postgres"
+	"github.com/Joedee43/interior_api/internal/quote"
 	"github.com/Joedee43/interior_api/internal/storage"
 )
 
@@ -75,14 +76,17 @@ func run() error {
 	catalogSvc := catalog.NewService(pool, files, log)
 	catalogHandler := catalog.NewHandler(catalogSvc, authHandler.RequireSession(), companyHandler.RequireMember())
 	// design depends on the catalog only through its Catalog interface.
-	designHandler := design.NewHandler(design.NewService(pool, catalogSvc), authHandler.RequireSession())
+	designSvc := design.NewService(pool, catalogSvc)
+	designHandler := design.NewHandler(designSvc, authHandler.RequireSession())
+	quoteHandler := quote.NewHandler(quote.NewService(pool, catalogSvc, designSvc, authSvc),
+		authHandler.RequireSession(), companyHandler.RequireMember(), quote.DefaultSubmitLimit())
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Logger:         log,
 		DB:             pool,
 		AllowedOrigins: cfg.AllowedOrigins,
 		V1Routes: []func(*gin.RouterGroup){
-			authHandler.Mount, companyHandler.Mount, catalogHandler.Mount, designHandler.Mount,
+			authHandler.Mount, companyHandler.Mount, catalogHandler.Mount, designHandler.Mount, quoteHandler.Mount,
 		},
 	})
 
