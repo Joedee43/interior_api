@@ -136,6 +136,36 @@ currency (4850000 = 48,500.00 ETB). Each company has one `currency`
   `?cursor=`. Cursors are keyset-based, so inserts while paging never cause
   skipped or repeated items, and a cursor only works with the sort it came from.
 
+## Options and variants
+
+A product can have up to **3 options** (Fabric, Colour, Legs), each with up
+to **30 values**, and up to **100 variants** — the combinations actually
+sold, each with its own SKU (unique per company), full `price_minor` and
+`available` flag. Only listed combinations can be chosen.
+
+Routes live under `/v1/companies/:companyID/products/:productID` (any
+active member): `GET /configuration`, `POST /options`,
+`PATCH|DELETE /options/:optionID`, `POST /options/:optionID/values`,
+`PATCH|DELETE /options/:optionID/values/:valueID`, `POST /variants`,
+`POST /variants/generate`, `PATCH|DELETE /variants/:variantID`. Every write
+returns the full configuration. See `requests/variants.http`.
+
+- Variants choose values **by name**: `{"options":{"Fabric":"Linen","Colour":"Grey"}}`.
+  Every option needs exactly one value; duplicates are 409 `duplicate_combination`.
+- Options can be added/removed only on a **draft without variants** (409
+  `options_locked`); values can be added any time and removed only if no
+  variant uses them (409 `value_in_use`; an option keeps ≥1 value).
+- With variants, the product's `price_minor` is the **cheapest available
+  variant** ("from" price, kept in sync automatically) and cannot be set
+  directly (409 `price_from_variants`).
+- Publishing a product with options needs an available variant (409
+  `no_available_variants`). Variants of non-draft products are switched off
+  (`available: false`), not deleted.
+- Values carry optional `swatch_hex` (`#A3B18A`) and `material_key` (GLTF
+  material name, used by the 3D viewer in Phase 6).
+- The public product page includes `options` and `variants`; unavailable
+  variants are listed with `available: false`.
+
 ## Go version
 
 `go.mod` requires **Go 1.26** (goose v3.29 and golang.org/x/crypto need it).

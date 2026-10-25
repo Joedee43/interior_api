@@ -1,0 +1,73 @@
+# Options and variants. Log in first (requests/auth.http). Every write
+# returns the product's full configuration (options + variants).
+
+@base = http://localhost:5050
+@companyId = paste-company-id-here
+@productId = paste-draft-product-id-here
+@optionId = paste-option-id-here
+@valueId = paste-value-id-here
+@variantId = paste-variant-id-here
+
+### Current configuration
+GET {{base}}/v1/companies/{{companyId}}/products/{{productId}}/configuration
+
+### Add an option with its values (draft products without variants only)
+POST {{base}}/v1/companies/{{companyId}}/products/{{productId}}/options
+Content-Type: application/json
+
+{
+  "name": "Fabric",
+  "values": [
+    { "name": "Linen", "material_key": "fabric_linen" },
+    { "name": "Velvet", "material_key": "fabric_velvet" }
+  ]
+}
+
+### Second option, with colour swatches
+POST {{base}}/v1/companies/{{companyId}}/products/{{productId}}/options
+Content-Type: application/json
+
+{
+  "name": "Colour",
+  "values": [
+    { "name": "Sand", "swatch_hex": "#D8C3A5" },
+    { "name": "Forest", "swatch_hex": "#2F4F3A" }
+  ]
+}
+
+### Add a value later (allowed any time)
+POST {{base}}/v1/companies/{{companyId}}/products/{{productId}}/options/{{optionId}}/values
+Content-Type: application/json
+
+{ "name": "Charcoal", "swatch_hex": "#36454F" }
+
+### Edit a value ("swatch_hex": null clears it)
+PATCH {{base}}/v1/companies/{{companyId}}/products/{{productId}}/options/{{optionId}}/values/{{valueId}}
+Content-Type: application/json
+
+{ "material_key": "fabric_charcoal" }
+
+### One variant, values chosen by name (case-insensitive)
+POST {{base}}/v1/companies/{{companyId}}/products/{{productId}}/variants
+Content-Type: application/json
+
+{
+  "sku": "ADDIS-LIN-SAND",
+  "price_minor": 1250000,
+  "options": { "Fabric": "Linen", "Colour": "Sand" }
+}
+
+### Or every missing combination at once (auto-SKUs)
+POST {{base}}/v1/companies/{{companyId}}/products/{{productId}}/variants/generate
+Content-Type: application/json
+
+{ "price_minor": 1250000 }
+
+### Reprice / switch off a variant
+PATCH {{base}}/v1/companies/{{companyId}}/products/{{productId}}/variants/{{variantId}}
+Content-Type: application/json
+
+{ "price_minor": 1490000, "available": true }
+
+### Delete a variant (draft products only; otherwise set available=false)
+DELETE {{base}}/v1/companies/{{companyId}}/products/{{productId}}/variants/{{variantId}}
