@@ -134,17 +134,54 @@ func (s *Service) Get(ctx context.Context, actor Member) (Company, error) {
 	return getCompany(ctx, s.pool, actor.CompanyID)
 }
 
-func (s *Service) Rename(ctx context.Context, actor Member, name string) (Company, error) {
-	name = strings.TrimSpace(name)
+// CompanyUpdate fields are optional (nil = unchanged). The slug is not
+// updatable: public product URLs are built from it.
+type CompanyUpdate struct {
+	Name     *string
+	Currency *string
+}
+
+func (s *Service) Update(ctx context.Context, actor Member, upd CompanyUpdate) (Company, error) {
 	p := auth.Problems{}
-	p.Add("name", ValidateName(name))
+	if upd.Name == nil && upd.Currency == nil {
+		p.Add("name", "provide name and/or currency")
+	}
+	if upd.Name != nil {
+		n := strings.TrimSpace(*upd.Name)
+		upd.Name = &n
+		p.Add("name", ValidateName(n))
+	}
+	if upd.Currency != nil {
+		cur := NormalizeCurrency(*upd.Currency)
+		upd.Currency = &cur
+		p.Add("currency", ValidateCurrency(cur))
+	}
 	if err := p.Err(); err != nil {
 		return Company{}, err
 	}
+
 	var c Company
 	err := s.adminTx(ctx, actor, func(tx pgx.Tx) error {
+		if upd.Currency != nil {
+			current, err := getCompany(ctx, tx, actor.CompanyID)
+			if err != nil {
+				return err
+			}
+			if *upd.Currency != current.Currency {
+				// adminTx holds the company row lock (FOR UPDATE), and product
+				// creation takes FOR SHARE on the same row, so no product can
+				// appear between this check and the update.
+				has, err := hasProducts(ctx, tx, actor.CompanyID)
+				if err != nil {
+					return err
+				}
+				if has {
+					return ErrCurrencyLocked
+				}
+			}
+		}
 		var err error
-		c, err = renameCompany(ctx, tx, actor.CompanyID, name)
+		c, err = updateCompany(ctx, tx, actor.CompanyID, upd.Name, upd.Currency)
 		return err
 	})
 	return c, err

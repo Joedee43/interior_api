@@ -16,11 +16,11 @@ import (
 // authorized Member — never from raw request input alone. That is the
 // tenant-isolation rule: a handler bug cannot reach another company's rows.
 
-const companyColumns = `id, name, slug, status, created_at, updated_at`
+const companyColumns = `id, name, slug, status, currency, created_at, updated_at`
 
 func scanCompany(row pgx.Row) (Company, error) {
 	var c Company
-	err := row.Scan(&c.ID, &c.Name, &c.Slug, &c.Status, &c.CreatedAt, &c.UpdatedAt)
+	err := row.Scan(&c.ID, &c.Name, &c.Slug, &c.Status, &c.Currency, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }
 
@@ -50,16 +50,34 @@ func getCompany(ctx context.Context, db postgres.DBTX, id string) (Company, erro
 	return c, nil
 }
 
-func renameCompany(ctx context.Context, db postgres.DBTX, id, name string) (Company, error) {
-	c, err := scanCompany(db.QueryRow(ctx,
-		`UPDATE companies SET name = $2 WHERE id = $1 RETURNING `+companyColumns, id, name))
+// updateCompany sets name and currency. COALESCE keeps the current value
+// when the argument is NULL (a nil *string from Go), so one statement
+// serves every combination of "fields provided".
+func updateCompany(ctx context.Context, db postgres.DBTX, id string, name, currency *string) (Company, error) {
+	c, err := scanCompany(db.QueryRow(ctx, `
+		UPDATE companies
+		SET name = COALESCE($2, name), currency = COALESCE($3, currency)
+		WHERE id = $1
+		RETURNING `+companyColumns,
+		id, name, currency,
+	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Company{}, ErrNotFound
 	}
 	if err != nil {
-		return Company{}, fmt.Errorf("rename company: %w", err)
+		return Company{}, fmt.Errorf("update company: %w", err)
 	}
 	return c, nil
+}
+
+// hasProducts reports whether the company has any product, in any status.
+func hasProducts(ctx context.Context, db postgres.DBTX, companyID string) (bool, error) {
+	var exists bool
+	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM products WHERE company_id = $1)`, companyID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check products: %w", err)
+	}
+	return exists, nil
 }
 
 func listCompanies(ctx context.Context, db postgres.DBTX, limit int) ([]Company, error) {

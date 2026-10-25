@@ -16,6 +16,8 @@ const (
 	codeEmailTaken = "email_taken"
 	codeSlugTaken  = "slug_taken"
 	codeLastAdmin  = "last_admin"
+
+	codeCurrencyLocked = "currency_locked"
 )
 
 type Handler struct {
@@ -42,7 +44,7 @@ func (h *Handler) Mount(v1 *gin.RouterGroup) {
 
 	c := v1.Group("/companies/:companyID", h.requireSession, h.RequireMember())
 	c.GET("", h.get)
-	c.PATCH("", RequireRole(RoleAdmin), h.rename)
+	c.PATCH("", RequireRole(RoleAdmin), h.update)
 	c.GET("/members", h.listMembers)
 	c.POST("/members", RequireRole(RoleAdmin), h.createMember)
 	c.PATCH("/members/:userID", RequireRole(RoleAdmin), h.updateMember)
@@ -110,12 +112,13 @@ type companyDTO struct {
 	Name      string    `json:"name"`
 	Slug      string    `json:"slug"`
 	Status    string    `json:"status"`
+	Currency  string    `json:"currency"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func toCompanyDTO(co Company) companyDTO {
-	return companyDTO{ID: co.ID, Name: co.Name, Slug: co.Slug, Status: co.Status, CreatedAt: co.CreatedAt, UpdatedAt: co.UpdatedAt}
+	return companyDTO{ID: co.ID, Name: co.Name, Slug: co.Slug, Status: co.Status, Currency: co.Currency, CreatedAt: co.CreatedAt, UpdatedAt: co.UpdatedAt}
 }
 
 type memberDTO struct {
@@ -168,16 +171,17 @@ func (h *Handler) get(c *gin.Context) {
 	c.JSON(http.StatusOK, toCompanyDTO(co))
 }
 
-type renameRequest struct {
-	Name string `json:"name"`
+type updateRequest struct {
+	Name     *string `json:"name"`
+	Currency *string `json:"currency"`
 }
 
-func (h *Handler) rename(c *gin.Context) {
-	var req renameRequest
+func (h *Handler) update(c *gin.Context) {
+	var req updateRequest
 	if !httpapi.DecodeJSON(c, &req) {
 		return
 	}
-	co, err := h.svc.Rename(c.Request.Context(), member(c), req.Name)
+	co, err := h.svc.Update(c.Request.Context(), member(c), CompanyUpdate{Name: req.Name, Currency: req.Currency})
 	if err != nil {
 		writeError(c, err)
 		return
@@ -286,6 +290,8 @@ func writeError(c *gin.Context, err error) {
 		httpapi.WriteError(c, http.StatusNotFound, httpapi.CodeNotFound, "member not found")
 	case errors.Is(err, ErrForbidden), errors.Is(err, auth.ErrForbidden):
 		httpapi.WriteError(c, http.StatusForbidden, httpapi.CodeForbidden, "you do not have permission to do this")
+	case errors.Is(err, ErrCurrencyLocked):
+		httpapi.WriteError(c, http.StatusConflict, codeCurrencyLocked, "currency cannot change once the company has products")
 	case errors.Is(err, ErrLastAdmin):
 		httpapi.WriteError(c, http.StatusConflict, codeLastAdmin, "a company must keep at least one active admin")
 	default:

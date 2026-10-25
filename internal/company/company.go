@@ -37,6 +37,10 @@ var (
 	// ErrLastAdmin protects the invariant "an active company always has at
 	// least one active admin".
 	ErrLastAdmin = errors.New("cannot remove the last active company admin")
+	// ErrCurrencyLocked: product prices are stored without a currency and
+	// read in the company's currency, so changing it once products exist
+	// would silently change what every price means.
+	ErrCurrencyLocked = errors.New("currency cannot change once the company has products")
 )
 
 type Company struct {
@@ -44,8 +48,23 @@ type Company struct {
 	Name      string
 	Slug      string
 	Status    string
+	Currency  string // ISO 4217, e.g. "ETB"
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+var currencyPattern = regexp.MustCompile(`^[A-Z]{3}$`)
+
+// NormalizeCurrency trims and uppercases, so "etb" is accepted as "ETB".
+func NormalizeCurrency(s string) string { return strings.ToUpper(strings.TrimSpace(s)) }
+
+// ValidateCurrency checks the ISO 4217 shape (three letters). It does not
+// check the code against the full ISO list.
+func ValidateCurrency(c string) string {
+	if !currencyPattern.MatchString(c) {
+		return "must be a 3-letter ISO 4217 code such as ETB or USD"
+	}
+	return ""
 }
 
 // Member is the authorized actor for company-scoped requests: who is
