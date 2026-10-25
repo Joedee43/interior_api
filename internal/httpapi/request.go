@@ -3,9 +3,12 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"regexp"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -68,9 +71,52 @@ func DecodeJSON(c *gin.Context, dst any) bool {
 	case errors.Is(err, io.EOF):
 		WriteError(c, http.StatusBadRequest, CodeBadRequest, "request body is empty")
 	default:
-		// json errors describe the problem (field name, wrong type) without
-		// exposing anything internal, so they are safe to return.
-		WriteError(c, http.StatusBadRequest, CodeBadRequest, "invalid JSON: "+err.Error())
+		WriteError(c, http.StatusBadRequest, CodeBadRequest, jsonProblem(err))
 	}
 	return false
+}
+
+// jsonProblem turns encoding/json errors into client-facing messages. The
+// raw messages name internal Go types ("Go struct field
+// createRequest.price_minor of type int64"), which callers should not see.
+func jsonProblem(err error) string {
+	var syntax *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &syntax):
+		return fmt.Sprintf("invalid JSON at byte %d", syntax.Offset)
+	case errors.As(err, &typeErr):
+		field := typeErr.Field
+		if field == "" {
+			return "the body has the wrong JSON type (expected an object)"
+		}
+		return fmt.Sprintf("field %q must be %s", field, jsonKind(typeErr.Type.Kind()))
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return "invalid JSON: the body ends too early"
+	case strings.HasPrefix(err.Error(), "json: unknown field "):
+		// e.g. json: unknown field "passwrod" — names only the client's own key.
+		return "unknown field " + strings.TrimPrefix(err.Error(), "json: unknown field ")
+	case strings.Contains(err.Error(), "single JSON object"):
+		return err.Error()
+	}
+	return "invalid JSON body"
+}
+
+func jsonKind(k reflect.Kind) string {
+	switch k {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "a whole number"
+	case reflect.Float32, reflect.Float64:
+		return "a number"
+	case reflect.String:
+		return "a string"
+	case reflect.Bool:
+		return "true or false"
+	case reflect.Slice, reflect.Array:
+		return "a list"
+	case reflect.Map, reflect.Struct:
+		return "an object"
+	}
+	return "a different type"
 }

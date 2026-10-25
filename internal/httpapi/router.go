@@ -18,6 +18,10 @@ type Deps struct {
 	// AllowedOrigins are browser origins (scheme://host[:port]) allowed to
 	// make state-changing requests; see checkOrigin.
 	AllowedOrigins []string
+	// HTTPS enables headers that only make sense over TLS (HSTS).
+	HTTPS bool
+	// Extra mounts routes outside /v1 (e.g. GET /openapi.yaml).
+	Extra []func(r *gin.Engine)
 	// V1Routes lets each domain package mount its own routes on /v1
 	// without httpapi importing it (which would create an import cycle,
 	// since domain handlers import httpapi for WriteError).
@@ -40,13 +44,17 @@ func NewRouter(d Deps) *gin.Engine {
 	// Order matters: request ID first so logging and recovery can use it.
 	// Body size limits are per use: DecodeJSON caps JSON at MaxBodyBytes,
 	// uploads set their own (larger) cap.
-	r.Use(requestID(), requestLogger(d.Logger), recovery(d.Logger))
+	r.Use(requestID(), requestLogger(d.Logger), recovery(d.Logger), securityHeaders(d.HTTPS))
 
 	health := &healthHandler{db: d.DB, log: d.Logger, timeout: 2 * time.Second}
 	// Operational endpoints stay unversioned; they are not part of the
 	// product API contract.
 	r.GET("/health", health.live)
 	r.GET("/health/database", health.database)
+
+	for _, mount := range d.Extra {
+		mount(r)
+	}
 
 	v1 := r.Group("/v1", checkOrigin(d.AllowedOrigins))
 	for _, mount := range d.V1Routes {

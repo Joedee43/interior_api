@@ -51,3 +51,31 @@ func TestDecodeJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeJSONMessagesHideGoTypes(t *testing.T) {
+	type payload struct {
+		Price int64  `json:"price_minor"`
+		Name  string `json:"name"`
+	}
+	r := gin.New()
+	r.POST("/x", func(c *gin.Context) {
+		var p payload
+		DecodeJSON(c, &p)
+	})
+	for body, want := range map[string]string{
+		`{"price_minor":12.5}`: `field "price_minor" must be a whole number`,
+		`{"name":5}`:           `field "name" must be a string`,
+		`{"name":"a",}`:        "invalid JSON at byte",
+		`[1,2]`:                "expected an object",
+		`{"nmae":"x"}`:         `unknown field "nmae"`,
+		`{"name":"a"`:          "ends too early",
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		msg := decodeError(t, w).Message // compare the decoded text, not escaped JSON
+		if !strings.Contains(msg, want) || strings.Contains(msg, "Go struct") || strings.Contains(msg, "payload") || strings.Contains(msg, "int64") {
+			t.Errorf("%s -> %s (want %q, no Go type names)", body, msg, want)
+		}
+	}
+}

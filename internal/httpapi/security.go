@@ -9,6 +9,27 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// securityHeaders sets defensive headers on every response. The API
+// returns JSON (and media files, whose handler tightens CSP further), so
+// nothing it serves should ever be framed, sniffed or used as a page.
+//
+// No Cross-Origin-Resource-Policy: the web frontend on another origin
+// must be able to load product images and models with <img>/fetch.
+func securityHeaders(https bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h := c.Writer.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		if https {
+			// Only meaningful (and only safe to send) over HTTPS.
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		c.Next()
+	}
+}
+
 // checkOrigin is the CSRF defence for cookie-authenticated requests.
 //
 // Browsers attach an Origin header to every cross-origin POST/PATCH/DELETE,

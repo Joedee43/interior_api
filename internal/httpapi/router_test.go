@@ -133,6 +133,32 @@ func TestRequestID(t *testing.T) {
 	})
 }
 
+func TestSecurityHeaders(t *testing.T) {
+	w := do(newTestRouter(fakePinger{}), http.MethodGet, "/health", nil)
+	for h, want := range map[string]string{
+		"X-Content-Type-Options":  "nosniff",
+		"X-Frame-Options":         "DENY",
+		"Referrer-Policy":         "no-referrer",
+		"Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+	} {
+		if got := w.Header().Get(h); got != want {
+			t.Errorf("%s = %q, want %q", h, got, want)
+		}
+	}
+	if w.Header().Get("Strict-Transport-Security") != "" {
+		t.Error("HSTS sent without HTTPS")
+	}
+
+	https := NewRouter(Deps{Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), DB: fakePinger{}, HTTPS: true})
+	if do(https, http.MethodGet, "/health", nil).Header().Get("Strict-Transport-Security") == "" {
+		t.Error("HSTS missing with HTTPS")
+	}
+	// Error responses carry the headers too.
+	if do(https, http.MethodGet, "/nope", nil).Header().Get("X-Frame-Options") != "DENY" {
+		t.Error("404 response lacks security headers")
+	}
+}
+
 func TestRecoveryReturnsJSON500(t *testing.T) {
 	r := newTestRouter(fakePinger{})
 	r.GET("/boom", func(*gin.Context) { panic("kaboom") })
