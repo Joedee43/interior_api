@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Joedee43/interior_api/internal/auth"
+	"github.com/Joedee43/interior_api/internal/catalog"
 	"github.com/Joedee43/interior_api/internal/company"
 	"github.com/Joedee43/interior_api/internal/httpapi"
 	"github.com/Joedee43/interior_api/internal/postgres/pgtest"
@@ -65,12 +66,13 @@ func New(t *testing.T, opts Options) *Env {
 	cookies := auth.Cookies{Secure: false, MaxAge: time.Hour}
 	authH := auth.NewHandler(authSvc, companySvc, cookies, limits)
 	companyH := company.NewHandler(companySvc, authH.RequireSession(), cookies, registerLimit)
+	catalogH := catalog.NewHandler(catalog.NewService(pool), authH.RequireSession(), companyH.RequireMember())
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:             pool,
 		AllowedOrigins: []string{Origin},
-		V1Routes:       []func(*gin.RouterGroup){authH.Mount, companyH.Mount},
+		V1Routes:       []func(*gin.RouterGroup){authH.Mount, companyH.Mount, catalogH.Mount},
 	})
 	return &Env{T: t, Pool: pool, Router: router}
 }

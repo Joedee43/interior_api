@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Joedee43/interior_api/internal/auth"
+	"github.com/Joedee43/interior_api/internal/catalog"
 	"github.com/Joedee43/interior_api/internal/company"
 	"github.com/Joedee43/interior_api/internal/config"
 	"github.com/Joedee43/interior_api/internal/httpapi"
@@ -64,12 +65,13 @@ func run() error {
 	cookies := auth.Cookies{Secure: cfg.CookieSecure(), MaxAge: cfg.SessionTTL}
 	authHandler := auth.NewHandler(authSvc, companySvc, cookies, auth.DefaultLimits())
 	companyHandler := company.NewHandler(companySvc, authHandler.RequireSession(), cookies, company.DefaultRegisterLimit())
+	catalogHandler := catalog.NewHandler(catalog.NewService(pool), authHandler.RequireSession(), companyHandler.RequireMember())
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		Logger:         log,
 		DB:             pool,
 		AllowedOrigins: cfg.AllowedOrigins,
-		V1Routes:       []func(*gin.RouterGroup){authHandler.Mount, companyHandler.Mount},
+		V1Routes:       []func(*gin.RouterGroup){authHandler.Mount, companyHandler.Mount, catalogHandler.Mount},
 	})
 
 	srv := &http.Server{
