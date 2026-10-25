@@ -166,6 +166,40 @@ returns the full configuration. See `requests/variants.http`.
 - The public product page includes `options` and `variants`; unavailable
   variants are listed with `available: false`.
 
+## Images and 3D models
+
+Files are stored by `internal/storage` (a small `Store` interface; today a
+`LocalStore` under `STORAGE_DIR`, default `./storage`, git-ignored). Keys are
+generated (`media/<uuid>`), never derived from upload names. Writes go to a
+temp file and are renamed into place, so a failed upload leaves nothing.
+
+| Endpoint | Who |
+|---|---|
+| `GET …/products/:productID/media` | member — gallery, model, `material_check` |
+| `POST …/products/:productID/images` (multipart `file`, optional `alt_text`) | member |
+| `PATCH/DELETE …/products/:productID/images/:mediaID` | member |
+| `PUT/DELETE …/products/:productID/model` (multipart `file`) | member |
+| `GET /v1/companies/:companyID/media/:mediaID/file` | member, any product status |
+| `GET /v1/media/:mediaID` | public, published products of active companies only |
+
+- **Accepted:** JPEG/PNG/WebP images ≤ 10 MB (20 per product); one GLB
+  (binary glTF 2.0) model ≤ 50 MB. Type is detected from the file's bytes;
+  GLBs referencing external buffers/textures are rejected. Oversized: 413.
+  **Files are type-checked, not virus-scanned.**
+- The first image is primary; deleting the primary promotes the next.
+  Product responses include `primary_image_url`; the public product page
+  includes `images` and `model` (with its material names).
+- **Material check:** each option value's `material_key` should name a
+  material in the GLB (case-insensitive); `GET …/media` lists the ones that
+  do not (`missing_material_keys`). Advisory only.
+- Public files are served with `Cache-Control: public, max-age=31536000,
+  immutable` (a new upload always gets a new id), an ETag, `nosniff` and a
+  restrictive CSP; range requests (206) are supported for large models.
+- Deleting an image, a model or a draft product deletes the files after the
+  database commit; failures are logged and leave a harmless orphan file.
+- Upload requests get a 5-minute read/write deadline instead of the server
+  defaults, so large models survive slow connections.
+
 ## Go version
 
 `go.mod` requires **Go 1.26** (goose v3.29 and golang.org/x/crypto need it).

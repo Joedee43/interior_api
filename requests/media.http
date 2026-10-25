@@ -1,0 +1,62 @@
+# Product images and 3D models. Log in first (requests/auth.http).
+# Uploads are multipart/form-data. With curl (PowerShell: use curl.exe):
+#
+#   curl.exe -b cookies.txt -F "file=@front.jpg" -F "alt_text=Front view" ^
+#     http://localhost:5050/v1/companies/<companyId>/products/<productId>/images
+#   curl.exe -b cookies.txt -X PUT -F "file=@chair.glb" ^
+#     http://localhost:5050/v1/companies/<companyId>/products/<productId>/model
+#
+# Images: JPEG/PNG/WebP up to 10 MB, 20 per product. Model: one GLB up to 50 MB.
+# The file type is detected from the bytes, not the file name.
+
+@base = http://localhost:5050
+@companyId = paste-company-id-here
+@productId = paste-product-id-here
+@mediaId = paste-media-id-here
+
+### Gallery, model and material check
+GET {{base}}/v1/companies/{{companyId}}/products/{{productId}}/media
+
+### Upload an image (REST Client multipart syntax)
+POST {{base}}/v1/companies/{{companyId}}/products/{{productId}}/images
+Content-Type: multipart/form-data; boundary=BOUNDARY
+
+--BOUNDARY
+Content-Disposition: form-data; name="alt_text"
+
+Front view
+--BOUNDARY
+Content-Disposition: form-data; name="file"; filename="front.png"
+Content-Type: image/png
+
+< ./front.png
+--BOUNDARY--
+
+### Make an image primary / edit alt text / reorder
+PATCH {{base}}/v1/companies/{{companyId}}/products/{{productId}}/images/{{mediaId}}
+Content-Type: application/json
+
+{ "is_primary": true, "alt_text": "Side view", "position": 0 }
+
+### Delete an image (the next one becomes primary if needed)
+DELETE {{base}}/v1/companies/{{companyId}}/products/{{productId}}/images/{{mediaId}}
+
+### Upload or replace the 3D model
+PUT {{base}}/v1/companies/{{companyId}}/products/{{productId}}/model
+Content-Type: multipart/form-data; boundary=BOUNDARY
+
+--BOUNDARY
+Content-Disposition: form-data; name="file"; filename="chair.glb"
+Content-Type: model/gltf-binary
+
+< ./chair.glb
+--BOUNDARY--
+
+### Remove the model
+DELETE {{base}}/v1/companies/{{companyId}}/products/{{productId}}/model
+
+### Member download (works for drafts)
+GET {{base}}/v1/companies/{{companyId}}/media/{{mediaId}}/file
+
+### Public file (published products of active companies only)
+GET {{base}}/v1/media/{{mediaId}}
