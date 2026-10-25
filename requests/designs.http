@@ -1,0 +1,68 @@
+# Rooms and saved designs.
+# Coordinates: millimetres, Y up, origin at the room's north-west floor
+# corner; x runs east (width), z runs south (depth). An item's position is
+# the centre of its footprint; rotation_deg turns it around the vertical axis.
+
+@base = http://localhost:5050
+@designId = paste-design-id-here
+@itemId = paste-item-id-here
+@productId = paste-published-product-id-here
+@variantId = paste-variant-id-here
+
+### Create a customer account (logs you in)
+POST {{base}}/v1/auth/register
+Content-Type: application/json
+
+{ "full_name": "Demo Customer", "email": "demo-customer@example.com", "password": "customer password 1" }
+
+### Room templates (public)
+GET {{base}}/v1/room-templates
+
+### Start a design from a template
+POST {{base}}/v1/designs
+Content-Type: application/json
+
+{ "name": "My living room", "template": "living-room-5x6" }
+
+### ...or from a custom room
+POST {{base}}/v1/designs
+Content-Type: application/json
+
+{
+  "name": "Garage workshop",
+  "width_mm": 6000, "depth_mm": 6000, "height_mm": 2500,
+  "features": {
+    "floor": "concrete",
+    "openings": [ { "type": "door", "wall": "south", "offset_mm": 1000, "width_mm": 2400, "height_mm": 2200, "sill_mm": 0 } ]
+  }
+}
+
+### My designs (newest edited first)
+GET {{base}}/v1/designs?limit=20
+
+### One design: items with product details, plus a price estimate
+GET {{base}}/v1/designs/{{designId}}
+
+### Place a product (variant_id required when the product has options)
+POST {{base}}/v1/designs/{{designId}}/items
+Content-Type: application/json
+
+{ "product_id": "{{productId}}", "variant_id": "{{variantId}}", "x_mm": 1200, "z_mm": 1500, "rotation_deg": 90 }
+
+### Move / rotate / change variant
+PATCH {{base}}/v1/designs/{{designId}}/items/{{itemId}}
+Content-Type: application/json
+
+{ "x_mm": 2000, "rotation_deg": 180 }
+
+### Remove an item
+DELETE {{base}}/v1/designs/{{designId}}/items/{{itemId}}
+
+### Rename or resize (refused if items would end up outside)
+PATCH {{base}}/v1/designs/{{designId}}
+Content-Type: application/json
+
+{ "name": "Living room v2", "width_mm": 5500 }
+
+### Delete the design
+DELETE {{base}}/v1/designs/{{designId}}

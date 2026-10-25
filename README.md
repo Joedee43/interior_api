@@ -14,6 +14,8 @@ internal/httpapi/ routing, middleware, JSON error format, origin check, rate lim
 internal/auth/    identity: users, passwords (Argon2id), sessions, login/logout/me
 internal/company/ tenancy: register-company, companies, members, company-scoped authorization
 internal/catalog/ products (company CRUD + lifecycle) and the public catalog
+internal/design/  room templates and customer designs (uses catalog via an interface)
+internal/storage/ file storage interface + local disk store
 internal/apitest/ full-stack test harness (imported only by _test.go files)
 migrations/       versioned SQL (see migrations/README.md)
 requests/         manual API requests (VS Code REST Client / Postman)
@@ -199,6 +201,38 @@ temp file and are renamed into place, so a failed upload leaves nothing.
   database commit; failures are logged and leave a harmless orphan file.
 - Upload requests get a 5-minute read/write deadline instead of the server
   defaults, so large models survive slow connections.
+
+## Rooms and saved designs
+
+Customers sign up with `POST /v1/auth/register` (a user with no company);
+any logged-in user can keep designs.
+
+**Coordinates** (glTF / Three.js): millimetres, Y up, origin at the room's
+north-west floor corner; x runs east along `width_mm`, z runs south along
+`depth_mm`. An item's position is the centre of its footprint; furniture
+only turns around the vertical axis (`rotation_deg`, stored in [0, 360)).
+Furniture is always real size: there is no scale.
+
+| Endpoint | Who |
+|---|---|
+| `GET /v1/room-templates` · `GET /v1/room-templates/:slug` | public (published) |
+| `GET/POST /v1/admin/room-templates` · `PATCH /v1/admin/room-templates/:id` | platform admin |
+| `POST/GET /v1/designs` · `GET/PATCH/DELETE /v1/designs/:id` | owner (others get 404) |
+| `POST /v1/designs/:id/items` · `PATCH/DELETE /v1/designs/:id/items/:itemId` | owner |
+
+- A design starts from a published template (`{"template":"living-room-5x6"}`)
+  or a custom room (1–30 m wide/deep, 2–6 m high). Room `features` (wall
+  colour, floor, door/window openings) have a fixed, strictly validated
+  shape; openings must fit their wall.
+- Placing needs a published product of an active company; products with
+  options need one of their own available `variant_id`s. The item's centre
+  must be inside the room. Max 200 items. No collision checking.
+- Resizing a room that would leave items outside is 409 `items_outside_room`.
+- `GET /v1/designs/:id` returns each item with current product details,
+  `available` (false once archived/switched off) and an **estimate** — totals
+  per seller and currency at current prices. It is not a quote.
+- Products and variants placed in designs cannot be deleted (409
+  `product_in_use` / `variant_in_use`); archive or switch them off instead.
 
 ## Go version
 
