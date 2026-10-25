@@ -320,7 +320,11 @@ func transition(ctx context.Context, db postgres.DBTX, companyID, id, from, to s
 		UPDATE products
 		SET status = $4,
 		    published_at = CASE WHEN $4 = 'published' THEN now() ELSE published_at END
-		WHERE company_id = $1 AND id = $2 AND status = $3`,
+		WHERE company_id = $1 AND id = $2 AND status = $3
+		  -- Publishing a product that has options needs a sellable variant.
+		  AND ($4 <> 'published'
+		       OR NOT EXISTS (SELECT 1 FROM product_options o WHERE o.product_id = products.id)
+		       OR EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = products.id AND v.available))`,
 		companyID, id, from, to,
 	)
 	if err != nil {

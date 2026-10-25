@@ -227,6 +227,16 @@ func (s *Service) Update(ctx context.Context, actor company.Member, id string, u
 			}
 			set["slug"] = newSlug
 		}
+		if _, ok := set["price_minor"]; ok {
+			// With variants, price_minor is the derived "from" price.
+			has, err := hasVariants(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if has {
+				return ErrPriceFromVariants
+			}
+		}
 		if err := updateProduct(ctx, tx, actor.CompanyID, id, set); err != nil {
 			return err
 		}
@@ -249,12 +259,13 @@ func (s *Service) Transition(ctx context.Context, actor company.Member, id, acti
 	if !changed {
 		// Either it is not ours/does not exist (404), or it exists in the
 		// wrong status for this action (409).
-		exists, err := productExists(ctx, s.pool, actor.CompanyID, id)
+		current, err := getCompanyProduct(ctx, s.pool, actor.CompanyID, id)
 		if err != nil {
-			return Product{}, err
+			return Product{}, err // ErrNotFound when not ours / missing
 		}
-		if !exists {
-			return Product{}, ErrNotFound
+		if action == "publish" && current.Status == t.from {
+			// Right status, so the variant condition is what blocked it.
+			return Product{}, ErrNoAvailableVariants
 		}
 		return Product{}, ErrInvalidTransition
 	}

@@ -43,6 +43,7 @@ func (h *Handler) Mount(v1 *gin.RouterGroup) {
 	for _, action := range []string{"publish", "archive", "restore"} {
 		p.POST("/:productID/"+action, h.transition(action))
 	}
+	h.mountConfiguration(p)
 
 	// Public: no session, published products of active companies only.
 	pub := v1.Group("/catalog")
@@ -315,12 +316,12 @@ func (h *Handler) publicList(c *gin.Context) {
 }
 
 func (h *Handler) publicGet(c *gin.Context) {
-	p, err := h.svc.PublicGet(c.Request.Context(), c.Param("companySlug"), c.Param("productSlug"))
+	p, cfg, err := h.svc.PublicDetail(c.Request.Context(), c.Param("companySlug"), c.Param("productSlug"))
 	if err != nil {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toPublicDTO(p))
+	c.JSON(http.StatusOK, publicDetailDTO{toPublicDTO(p), toConfigurationDTO(cfg, p.Currency)})
 }
 
 // ---- helpers ----------------------------------------------------------
@@ -354,6 +355,7 @@ func int64Query(c *gin.Context, name string) (*int64, bool) {
 }
 
 func writeError(c *gin.Context, err error) {
+	var limitErr *LimitError
 	var verr *auth.ValidationError
 	switch {
 	case errors.As(err, &verr):
@@ -368,6 +370,34 @@ func writeError(c *gin.Context, err error) {
 		httpapi.WriteError(c, http.StatusConflict, codeInvalidTransition, "the product's current status does not allow this action")
 	case errors.Is(err, ErrNotDraft):
 		httpapi.WriteError(c, http.StatusConflict, codeNotDraft, "only draft products can be deleted; archive it instead")
+	case errors.Is(err, ErrOptionNotFound):
+		httpapi.WriteError(c, http.StatusNotFound, httpapi.CodeNotFound, "option not found")
+	case errors.Is(err, ErrValueNotFound):
+		httpapi.WriteError(c, http.StatusNotFound, httpapi.CodeNotFound, "option value not found")
+	case errors.Is(err, ErrVariantNotFound):
+		httpapi.WriteError(c, http.StatusNotFound, httpapi.CodeNotFound, "variant not found")
+	case errors.Is(err, ErrOptionNameTaken):
+		httpapi.WriteError(c, http.StatusConflict, "option_name_taken", "this product already has an option with that name")
+	case errors.Is(err, ErrValueNameTaken):
+		httpapi.WriteError(c, http.StatusConflict, "value_name_taken", "this option already has a value with that name")
+	case errors.Is(err, ErrSKUTaken):
+		httpapi.WriteError(c, http.StatusConflict, "sku_taken", "another variant in this company already uses this SKU")
+	case errors.Is(err, ErrDuplicateCombination):
+		httpapi.WriteError(c, http.StatusConflict, "duplicate_combination", "a variant with this combination already exists")
+	case errors.Is(err, ErrOptionsLocked):
+		httpapi.WriteError(c, http.StatusConflict, "options_locked", "options can only be added or removed on a draft product without variants")
+	case errors.Is(err, ErrValueInUse):
+		httpapi.WriteError(c, http.StatusConflict, "value_in_use", "a variant uses this value; delete or change that variant first")
+	case errors.Is(err, ErrLastValue):
+		httpapi.WriteError(c, http.StatusConflict, "last_value", "an option must keep at least one value")
+	case errors.Is(err, ErrPriceFromVariants):
+		httpapi.WriteError(c, http.StatusConflict, "price_from_variants", "this product's price is the cheapest available variant; change variant prices instead")
+	case errors.Is(err, ErrNoAvailableVariants):
+		httpapi.WriteError(c, http.StatusConflict, "no_available_variants", "a product with options needs at least one available variant to be published")
+	case errors.Is(err, ErrVariantNotDeletable):
+		httpapi.WriteError(c, http.StatusConflict, codeNotDraft, "variants can only be deleted while the product is a draft; set available to false instead")
+	case errors.As(err, &limitErr):
+		httpapi.WriteError(c, http.StatusConflict, "limit_reached", "limit reached: "+limitErr.Error())
 	default:
 		httpapi.WriteInternalError(c, err)
 	}
