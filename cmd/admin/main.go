@@ -5,6 +5,7 @@
 //	go run ./cmd/admin grant-platform-admin  -email you@example.com
 //	go run ./cmd/admin revoke-platform-admin -email you@example.com
 //	go run ./cmd/admin list-platform-admins
+//	go run ./cmd/admin cleanup-sessions -retain 720h
 //
 // Changes take effect on the user's next request: the flag is read from
 // the users table on every authenticated request, so no re-login is needed.
@@ -34,6 +35,7 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: admin grant-platform-admin|revoke-platform-admin -email <email>")
 	fmt.Fprintln(os.Stderr, "       admin list-platform-admins")
+	fmt.Fprintln(os.Stderr, "       admin cleanup-sessions [-retain 720h]")
 }
 
 func run(args []string) error {
@@ -47,6 +49,7 @@ func run(args []string) error {
 	// doing `tool <command> -flags` (like `go build -o`).
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	email := fs.String("email", "", "user email")
+	retain := fs.Duration("retain", 30*24*time.Hour, "cleanup-sessions: keep dead sessions this long")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -83,6 +86,14 @@ func run(args []string) error {
 			return fmt.Errorf("no user with email %s", auth.NormalizeEmail(*email))
 		}
 		fmt.Printf("%s: is_platform_admin = %v\n", auth.NormalizeEmail(*email), grant)
+		return nil
+
+	case "cleanup-sessions":
+		n, err := auth.DeleteDeadSessions(ctx, pool, *retain)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("deleted %d sessions expired or revoked more than %s ago\n", n, *retain)
 		return nil
 
 	case "list-platform-admins":

@@ -13,7 +13,14 @@ import (
 
 const codeInvalidCredentials = "invalid_credentials"
 
-const SessionCookieName = "interior_session"
+// Session cookie names. Over HTTPS the "__Host-" prefix makes the browser
+// refuse the cookie unless it is Secure, has Path=/ and no Domain, so a
+// compromised subdomain cannot plant or overwrite it. Plain-HTTP
+// development cannot use the prefix (it requires Secure).
+const (
+	SessionCookieName       = "interior_session"
+	SecureSessionCookieName = "__Host-interior_session"
+)
 
 // Cookies writes the session cookie. Secure must be true whenever the
 // site is served over HTTPS (production); browsers refuse to send Secure
@@ -23,11 +30,19 @@ type Cookies struct {
 	MaxAge time.Duration
 }
 
+// Name is the cookie name for this configuration.
+func (k Cookies) Name() string {
+	if k.Secure {
+		return SecureSessionCookieName
+	}
+	return SessionCookieName
+}
+
 // http.SetCookie is used instead of gin's c.SetCookie because it exposes
 // every attribute, SameSite included, in one struct.
 func (k Cookies) Set(c *gin.Context, token string) {
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     SessionCookieName,
+		Name:     k.Name(),
 		Value:    token,
 		Path:     "/",
 		MaxAge:   int(k.MaxAge.Seconds()),
@@ -39,7 +54,7 @@ func (k Cookies) Set(c *gin.Context, token string) {
 
 func (k Cookies) Clear(c *gin.Context) {
 	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     SessionCookieName,
+		Name:     k.Name(),
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1, // tells the browser to delete it now
@@ -89,6 +104,8 @@ func (h *Handler) Mount(v1 *gin.RouterGroup) {
 	g.POST("/register", httpapi.RateLimitByIP(h.limits.RegisterPerIP, "register-customer"), h.register)
 	g.POST("/login", httpapi.RateLimitByIP(h.limits.LoginPerIP, "login"), h.login)
 	g.POST("/logout", h.logout)
+	g.POST("/logout-all", h.RequireSession(), h.logoutAll)
+	g.POST("/password", h.RequireSession(), h.changePassword)
 	g.GET("/me", h.RequireSession(), h.me)
 }
 
@@ -184,7 +201,7 @@ func (h *Handler) login(c *gin.Context) {
 		return
 	}
 
-	previous, _ := c.Cookie(SessionCookieName)
+	previous, _ := c.Cookie(h.cookies.Name())
 	user, token, err := h.svc.Login(c.Request.Context(), req.Email, req.Password, previous, SessionMetaFrom(c))
 	if err != nil {
 		writeError(c, err)
@@ -195,12 +212,50 @@ func (h *Handler) login(c *gin.Context) {
 }
 
 func (h *Handler) logout(c *gin.Context) {
-	token, _ := c.Cookie(SessionCookieName)
+	token, _ := c.Cookie(h.cookies.Name())
 	if err := h.svc.Logout(c.Request.Context(), token); err != nil {
 		httpapi.WriteInternalError(c, err)
 		return
 	}
 	h.cookies.Clear(c)
+	c.Status(http.StatusNoContent)
+}
+
+// logoutAll ends every session of the user on every device, this one too.
+func (h *Handler) logoutAll(c *gin.Context) {
+	p, _ := PrincipalFrom(c.Request.Context())
+	if _, err := h.svc.LogoutAll(c.Request.Context(), p.UserID); err != nil {
+		writeError(c, err)
+		return
+	}
+	h.cookies.Clear(c)
+	c.Status(http.StatusNoContent)
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+// changePassword replaces the password, revokes every session and gives
+// this client a fresh one. Guesses at the current password are limited
+// per account like logins.
+func (h *Handler) changePassword(c *gin.Context) {
+	p, _ := PrincipalFrom(c.Request.Context())
+	if !h.limits.LoginPerEmail.Allow("password:" + p.UserID) {
+		httpapi.WriteRateLimited(c)
+		return
+	}
+	var req changePasswordRequest
+	if !httpapi.DecodeJSON(c, &req) {
+		return
+	}
+	token, err := h.svc.ChangePassword(c.Request.Context(), p.UserID, req.CurrentPassword, req.NewPassword, SessionMetaFrom(c))
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	h.cookies.Set(c, token)
 	c.Status(http.StatusNoContent)
 }
 
@@ -229,7 +284,7 @@ func (h *Handler) respondAccount(c *gin.Context, status int, user User) {
 // stores the Principal on the request context for later handlers.
 func (h *Handler) RequireSession() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token, _ := c.Cookie(SessionCookieName)
+		token, _ := c.Cookie(h.cookies.Name())
 		p, err := h.svc.Authenticate(c.Request.Context(), token)
 		if err != nil {
 			writeError(c, err) // aborts the chain; c.Next() is never reached

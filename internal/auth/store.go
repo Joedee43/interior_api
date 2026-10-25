@@ -128,6 +128,43 @@ func touchSession(ctx context.Context, db postgres.DBTX, sessionID string) error
 	return nil
 }
 
+func passwordHash(ctx context.Context, db postgres.DBTX, userID string) (string, error) {
+	var h string
+	if err := db.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&h); err != nil {
+		return "", fmt.Errorf("get password hash: %w", err)
+	}
+	return h, nil
+}
+
+func setPasswordHash(ctx context.Context, db postgres.DBTX, userID, hash string) error {
+	if _, err := db.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, userID, hash); err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+	return nil
+}
+
+// revokeUserSessions revokes every live session of the user.
+func revokeUserSessions(ctx context.Context, db postgres.DBTX, userID string) (int64, error) {
+	tag, err := db.Exec(ctx,
+		`UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()`, userID)
+	if err != nil {
+		return 0, fmt.Errorf("revoke user sessions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// deleteDeadSessions removes sessions that expired or were revoked more
+// than retain ago. Recent ones are kept a while for troubleshooting.
+func deleteDeadSessions(ctx context.Context, db postgres.DBTX, retain time.Duration) (int64, error) {
+	tag, err := db.Exec(ctx, `
+		DELETE FROM sessions
+		WHERE expires_at < now() - $1::interval OR revoked_at < now() - $1::interval`, retain)
+	if err != nil {
+		return 0, fmt.Errorf("delete dead sessions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func revokeSession(ctx context.Context, db postgres.DBTX, tokenHash []byte) error {
 	_, err := db.Exec(ctx,
 		`UPDATE sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL`,
