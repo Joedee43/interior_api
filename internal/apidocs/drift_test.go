@@ -16,9 +16,10 @@ import (
 )
 
 var (
-	pathLine   = regexp.MustCompile(`^  (/\S*):\s*$`)
-	methodLine = regexp.MustCompile(`^    (get|post|put|patch|delete):\s*$`)
-	braces     = regexp.MustCompile(`\{(\w+)\}`)
+	pathLine        = regexp.MustCompile(`^  (/\S*):\s*$`)
+	methodLine      = regexp.MustCompile(`^    (get|post|put|patch|delete):\s*$`)
+	operationIDLine = regexp.MustCompile(`^      operationId: ([A-Za-z][A-Za-z0-9]*)\s*$`)
+	braces          = regexp.MustCompile(`\{(\w+)\}`)
 )
 
 // specOperations reads "METHOD /path" pairs from the YAML by indentation
@@ -40,6 +41,37 @@ func specOperations(t *testing.T) map[string]bool {
 		}
 	}
 	return ops
+}
+
+// specOperationIDs returns each documented route's generator-safe name.
+// Keeping this small parser beside the route drift parser avoids adding a
+// runtime YAML dependency only for a contract test.
+func specOperationIDs(t *testing.T) map[string]string {
+	t.Helper()
+	ids := map[string]string{}
+	currentPath, currentOperation := "", ""
+	sc := bufio.NewScanner(bytes.NewReader(apidocs.Spec()))
+	for sc.Scan() {
+		line := sc.Text()
+		if m := pathLine.FindStringSubmatch(line); m != nil {
+			currentPath = braces.ReplaceAllString(m[1], ":$1")
+			currentOperation = ""
+			continue
+		}
+		if m := methodLine.FindStringSubmatch(line); m != nil && currentPath != "" {
+			currentOperation = strings.ToUpper(m[1]) + " " + currentPath
+			ids[currentOperation] = ""
+			continue
+		}
+		if m := operationIDLine.FindStringSubmatch(line); m != nil && currentOperation != "" {
+			ids[currentOperation] = m[1]
+			currentOperation = ""
+		}
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatalf("scan OpenAPI operationIds: %v", err)
+	}
+	return ids
 }
 
 func TestSpecMatchesRoutes(t *testing.T) {
@@ -80,5 +112,20 @@ func TestSpecIsServed(t *testing.T) {
 	w := e.Do(http.MethodGet, "/openapi.yaml", "")
 	if w.Code != http.StatusOK || !strings.HasPrefix(w.Body.String(), "openapi: 3.1.0") {
 		t.Errorf("GET /openapi.yaml: %d", w.Code)
+	}
+}
+
+func TestEveryOperationHasUniqueOperationID(t *testing.T) {
+	ids := specOperationIDs(t)
+	seen := map[string]string{}
+	for operation, id := range ids {
+		if id == "" {
+			t.Errorf("%s has no operationId", operation)
+			continue
+		}
+		if previous, exists := seen[id]; exists {
+			t.Errorf("operationId %q is shared by %s and %s", id, previous, operation)
+		}
+		seen[id] = operation
 	}
 }

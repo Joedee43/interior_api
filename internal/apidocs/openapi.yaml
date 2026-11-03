@@ -450,12 +450,14 @@ paths:
   # ---------------------------------------------------------------- health
   /health:
     get:
+      operationId: getHealth
       tags: [health]
       summary: Liveness (does not touch the database)
       responses:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Health'}}}}
   /health/database:
     get:
+      operationId: getDatabaseHealth
       tags: [health]
       summary: Database readiness
       responses:
@@ -463,6 +465,7 @@ paths:
         '503': {description: Database unavailable (`service_unavailable`).}
   /openapi.yaml:
     get:
+      operationId: getOpenAPISpec
       tags: [health]
       summary: This document
       responses:
@@ -471,6 +474,7 @@ paths:
   # ---------------------------------------------------------------- auth
   /v1/auth/register:
     post:
+      operationId: registerCustomer
       tags: [auth]
       summary: Create a customer account and sign in
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/NewUser'}}}}
@@ -481,6 +485,7 @@ paths:
         '429': {$ref: '#/components/responses/RateLimited'}
   /v1/auth/register-company:
     post:
+      operationId: registerCompany
       tags: [auth]
       summary: Register a company and its first admin, and sign in
       requestBody:
@@ -500,6 +505,7 @@ paths:
         '429': {$ref: '#/components/responses/RateLimited'}
   /v1/auth/login:
     post:
+      operationId: login
       tags: [auth]
       summary: Sign in (rotates the session)
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/Credentials'}}}}
@@ -509,12 +515,14 @@ paths:
         '429': {$ref: '#/components/responses/RateLimited'}
   /v1/auth/logout:
     post:
+      operationId: logout
       tags: [auth]
       summary: Sign out this session (idempotent)
       responses:
         '204': {$ref: '#/components/responses/NoContent'}
   /v1/auth/logout-all:
     post:
+      operationId: logoutAll
       tags: [auth]
       summary: Sign out every session of the user, on every device
       security: [{session: []}]
@@ -523,6 +531,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
   /v1/auth/password:
     post:
+      operationId: changePassword
       tags: [auth]
       summary: Change password (revokes every session, issues a new one)
       security: [{session: []}]
@@ -538,6 +547,7 @@ paths:
         '429': {$ref: '#/components/responses/RateLimited'}
   /v1/auth/me:
     get:
+      operationId: getCurrentAccount
       tags: [auth]
       summary: Current user and memberships
       security: [{session: []}]
@@ -549,6 +559,7 @@ paths:
   /v1/companies/{companyID}:
     parameters: [{$ref: '#/components/parameters/CompanyID'}]
     get:
+      operationId: getCompany
       tags: [companies]
       summary: Company profile (any active member)
       security: [{session: []}]
@@ -556,6 +567,7 @@ paths:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Company'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
+      operationId: updateCompany
       tags: [companies]
       summary: Update name and/or currency (company_admin)
       description: The currency cannot change once the company has products (`currency_locked`).
@@ -572,6 +584,7 @@ paths:
   /v1/companies/{companyID}/members:
     parameters: [{$ref: '#/components/parameters/CompanyID'}]
     get:
+      operationId: listCompanyMembers
       tags: [companies]
       summary: List members (any active member)
       security: [{session: []}]
@@ -579,6 +592,7 @@ paths:
         '200': {description: OK, content: {application/json: {schema: {type: object, properties: {members: {type: array, items: {$ref: '#/components/schemas/Member'}}}}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     post:
+      operationId: createCompanyMember
       tags: [companies]
       summary: Create a new account as a member (company_admin)
       security: [{session: []}]
@@ -598,6 +612,7 @@ paths:
   /v1/companies/{companyID}/members/{userID}:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/UserID'}]
     patch:
+      operationId: updateCompanyMember
       tags: [companies]
       summary: Change a member's role and/or status (company_admin)
       description: The last active admin cannot be demoted or disabled (`last_admin`).
@@ -616,6 +631,7 @@ paths:
   /v1/companies/{companyID}/products:
     parameters: [{$ref: '#/components/parameters/CompanyID'}]
     get:
+      operationId: listCompanyProducts
       tags: [catalog]
       summary: The company's products, any status (newest first)
       security: [{session: []}]
@@ -629,6 +645,7 @@ paths:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyProductPage'}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
     post:
+      operationId: createProduct
       tags: [catalog]
       summary: Create a draft product
       security: [{session: []}]
@@ -640,6 +657,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
     get:
+      operationId: getCompanyProduct
       tags: [catalog]
       summary: One of the company's products
       security: [{session: []}]
@@ -647,6 +665,7 @@ paths:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CompanyProduct'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
+      operationId: updateProduct
       tags: [catalog]
       summary: Edit fields (send only what changes; `weight_g` null clears it)
       description: '`slug` only while draft (`slug_locked`); `price_minor` not when variants exist (`price_from_variants`).'
@@ -658,6 +677,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
     delete:
+      operationId: deleteProduct
       tags: [catalog]
       summary: Delete a draft (and its media files)
       security: [{session: []}]
@@ -668,6 +688,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/publish:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
     post:
+      operationId: publishProduct
       tags: [catalog]
       summary: draft -> published
       description: A product with options needs an available variant (`no_available_variants`).
@@ -679,6 +700,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/archive:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
     post:
+      operationId: archiveProduct
       tags: [catalog]
       summary: published -> archived
       security: [{session: []}]
@@ -689,6 +711,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/restore:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
     post:
+      operationId: restoreProduct
       tags: [catalog]
       summary: archived -> draft
       security: [{session: []}]
@@ -701,6 +724,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/configuration:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
     get:
+      operationId: getProductConfiguration
       tags: [variants]
       summary: Options, values and variants
       security: [{session: []}]
@@ -710,6 +734,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/options:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
     post:
+      operationId: createProductOption
       tags: [variants]
       summary: Add an option with its values (draft without variants only; max 3)
       security: [{session: []}]
@@ -724,6 +749,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/options/{optionID}:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}, {$ref: '#/components/parameters/OptionID'}]
     patch:
+      operationId: updateProductOption
       tags: [variants]
       summary: Rename or reorder an option
       security: [{session: []}]
@@ -734,6 +760,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
     delete:
+      operationId: deleteProductOption
       tags: [variants]
       summary: Delete an option (draft without variants only)
       security: [{session: []}]
@@ -744,6 +771,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/options/{optionID}/values:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}, {$ref: '#/components/parameters/OptionID'}]
     post:
+      operationId: createProductOptionValue
       tags: [variants]
       summary: Add a value (allowed any time; max 30)
       security: [{session: []}]
@@ -756,6 +784,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/options/{optionID}/values/{valueID}:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}, {$ref: '#/components/parameters/OptionID'}, {$ref: '#/components/parameters/ValueID'}]
     patch:
+      operationId: updateProductOptionValue
       tags: [variants]
       summary: Edit a value (`swatch_hex`/`material_key` null clears)
       security: [{session: []}]
@@ -766,6 +795,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
     delete:
+      operationId: deleteProductOptionValue
       tags: [variants]
       summary: Delete an unused value (`value_in_use`, `last_value`)
       security: [{session: []}]
@@ -776,6 +806,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/variants:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
     post:
+      operationId: createProductVariant
       tags: [variants]
       summary: Add a variant (values chosen by name; max 100)
       security: [{session: []}]
@@ -792,6 +823,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/variants/generate:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
     post:
+      operationId: generateProductVariants
       tags: [variants]
       summary: Create every missing combination at one price
       security: [{session: []}]
@@ -804,6 +836,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/variants/{variantID}:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}, {$ref: '#/components/parameters/VariantID'}]
     patch:
+      operationId: updateProductVariant
       tags: [variants]
       summary: Change SKU, price, availability or position
       security: [{session: []}]
@@ -814,6 +847,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
     delete:
+      operationId: deleteProductVariant
       tags: [variants]
       summary: Delete a variant (draft products only; `variant_in_use` if placed in designs)
       security: [{session: []}]
@@ -826,6 +860,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/media:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
     get:
+      operationId: listProductMedia
       tags: [media]
       summary: Gallery, model and material check
       security: [{session: []}]
@@ -844,6 +879,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/images:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
     post:
+      operationId: uploadProductImage
       tags: [media]
       summary: Upload an image (JPEG/PNG/WebP, max 10 MB, 20 per product)
       security: [{session: []}]
@@ -857,6 +893,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/images/{mediaID}:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}, {$ref: '#/components/parameters/MediaID'}]
     patch:
+      operationId: updateProductImage
       tags: [media]
       summary: Edit alt text / position, or make primary
       security: [{session: []}]
@@ -866,6 +903,7 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
     delete:
+      operationId: deleteProductImage
       tags: [media]
       summary: Delete an image (the next becomes primary if needed)
       security: [{session: []}]
@@ -875,6 +913,7 @@ paths:
   /v1/companies/{companyID}/products/{productID}/model:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/ProductID'}]
     put:
+      operationId: putProductModel
       tags: [media]
       summary: Upload or replace the GLB model (max 50 MB)
       security: [{session: []}]
@@ -885,6 +924,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '413': {$ref: '#/components/responses/TooLarge'}
     delete:
+      operationId: deleteProductModel
       tags: [media]
       summary: Remove the model
       security: [{session: []}]
@@ -894,6 +934,7 @@ paths:
   /v1/companies/{companyID}/media/{mediaID}/file:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/MediaID'}]
     get:
+      operationId: getCompanyMediaFile
       tags: [media]
       summary: Download a media file (members; any product status; never cached)
       security: [{session: []}]
@@ -904,6 +945,7 @@ paths:
   /v1/media/{mediaID}:
     parameters: [{$ref: '#/components/parameters/MediaID'}]
     get:
+      operationId: getPublicMedia
       tags: [media]
       summary: Public media file (published products of active companies)
       description: Immutable — cached for a year; supports Range and If-None-Match.
@@ -916,12 +958,14 @@ paths:
   # ---------------------------------------------------------------- catalog (public)
   /v1/catalog/categories:
     get:
+      operationId: listCategories
       tags: [catalog]
       summary: Platform-wide categories
       responses:
         '200': {description: OK, content: {application/json: {schema: {type: object, properties: {categories: {type: array, items: {$ref: '#/components/schemas/Category'}}}}}}}
   /v1/catalog/products:
     get:
+      operationId: listCatalogProducts
       tags: [catalog]
       summary: Browse published products
       parameters:
@@ -942,6 +986,7 @@ paths:
       - {name: companySlug, in: path, required: true, schema: {type: string}}
       - {name: productSlug, in: path, required: true, schema: {type: string}}
     get:
+      operationId: getCatalogProduct
       tags: [catalog]
       summary: Public product page with options, variants and media
       responses:
@@ -951,6 +996,7 @@ paths:
   # ---------------------------------------------------------------- rooms
   /v1/room-templates:
     get:
+      operationId: listRoomTemplates
       tags: [rooms]
       summary: Published room templates
       responses:
@@ -958,6 +1004,7 @@ paths:
   /v1/room-templates/{slug}:
     parameters: [{name: slug, in: path, required: true, schema: {type: string}}]
     get:
+      operationId: getRoomTemplate
       tags: [rooms]
       summary: One published room template
       responses:
@@ -967,6 +1014,7 @@ paths:
   # ---------------------------------------------------------------- designs
   /v1/designs:
     get:
+      operationId: listDesigns
       tags: [designs]
       summary: My designs (most recently edited first)
       security: [{session: []}]
@@ -976,6 +1024,7 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
     post:
+      operationId: createDesign
       tags: [designs]
       summary: Start a design from a template or a custom room
       security: [{session: []}]
@@ -1000,6 +1049,7 @@ paths:
   /v1/designs/{designID}:
     parameters: [{$ref: '#/components/parameters/DesignID'}]
     get:
+      operationId: getDesign
       tags: [designs]
       summary: A design with items and estimate (owner only)
       security: [{session: []}]
@@ -1007,6 +1057,7 @@ paths:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/DesignDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
+      operationId: updateDesign
       tags: [designs]
       summary: Rename, resize or change features
       description: Resizing that would leave items outside is `items_outside_room`.
@@ -1020,6 +1071,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
     delete:
+      operationId: deleteDesign
       tags: [designs]
       summary: Delete a design
       security: [{session: []}]
@@ -1029,6 +1081,7 @@ paths:
   /v1/designs/{designID}/items:
     parameters: [{$ref: '#/components/parameters/DesignID'}]
     post:
+      operationId: createDesignItem
       tags: [designs]
       summary: Place a product (published; variant required when it has options; max 200)
       security: [{session: []}]
@@ -1041,6 +1094,7 @@ paths:
   /v1/designs/{designID}/items/{itemID}:
     parameters: [{$ref: '#/components/parameters/DesignID'}, {$ref: '#/components/parameters/ItemID'}]
     patch:
+      operationId: updateDesignItem
       tags: [designs]
       summary: Move, rotate or change the variant
       security: [{session: []}]
@@ -1050,6 +1104,7 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
     delete:
+      operationId: deleteDesignItem
       tags: [designs]
       summary: Remove an item
       security: [{session: []}]
@@ -1060,6 +1115,7 @@ paths:
   # ---------------------------------------------------------------- quotes (customer)
   /v1/quote-requests/from-design:
     post:
+      operationId: createQuoteRequestsFromDesign
       tags: [quotes]
       summary: Request quotes for a design (one request per seller)
       security: [{session: []}]
@@ -1078,6 +1134,7 @@ paths:
         '429': {$ref: '#/components/responses/RateLimited'}
   /v1/quote-requests:
     get:
+      operationId: listCustomerQuoteRequests
       tags: [quotes]
       summary: My quote requests (newest first)
       security: [{session: []}]
@@ -1089,6 +1146,7 @@ paths:
         '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QuotePage'}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
     post:
+      operationId: createCustomerQuoteRequest
       tags: [quotes]
       summary: Request a quote for products from one seller
       security: [{session: []}]
@@ -1114,6 +1172,7 @@ paths:
   /v1/quote-requests/{requestID}:
     parameters: [{$ref: '#/components/parameters/RequestID'}]
     get:
+      operationId: getCustomerQuoteRequest
       tags: [quotes]
       summary: One of my requests, with lines and charges
       security: [{session: []}]
@@ -1123,6 +1182,7 @@ paths:
   /v1/quote-requests/{requestID}/accept:
     parameters: [{$ref: '#/components/parameters/RequestID'}]
     post:
+      operationId: acceptQuoteRequest
       tags: [quotes]
       summary: Accept the quote (quoted -> accepted)
       description: Send the revision you reviewed; `stale_revision` if it changed, `quote_expired` after valid_until.
@@ -1136,6 +1196,7 @@ paths:
   /v1/quote-requests/{requestID}/reject:
     parameters: [{$ref: '#/components/parameters/RequestID'}]
     post:
+      operationId: rejectQuoteRequest
       tags: [quotes]
       summary: Reject the quote (quoted -> rejected)
       security: [{session: []}]
@@ -1146,6 +1207,7 @@ paths:
   /v1/quote-requests/{requestID}/cancel:
     parameters: [{$ref: '#/components/parameters/RequestID'}]
     post:
+      operationId: cancelQuoteRequest
       tags: [quotes]
       summary: Cancel (pending/reviewing/quoted -> cancelled)
       security: [{session: []}]
@@ -1158,6 +1220,7 @@ paths:
   /v1/companies/{companyID}/quote-requests:
     parameters: [{$ref: '#/components/parameters/CompanyID'}]
     get:
+      operationId: listCompanyQuoteRequests
       tags: [quotes]
       summary: Requests to the company (any active member)
       security: [{session: []}]
@@ -1172,6 +1235,7 @@ paths:
   /v1/companies/{companyID}/quote-requests/{requestID}:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/RequestID'}]
     get:
+      operationId: getCompanyQuoteRequest
       tags: [quotes]
       summary: One request to the company
       security: [{session: []}]
@@ -1181,6 +1245,7 @@ paths:
   /v1/companies/{companyID}/quote-requests/{requestID}/review:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/RequestID'}]
     post:
+      operationId: reviewQuoteRequest
       tags: [quotes]
       summary: Start reviewing (pending -> reviewing)
       security: [{session: []}]
@@ -1191,6 +1256,7 @@ paths:
   /v1/companies/{companyID}/quote-requests/{requestID}/quote:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/RequestID'}]
     put:
+      operationId: sendQuote
       tags: [quotes]
       summary: Send or revise the quote (every line priced)
       security: [{session: []}]
@@ -1214,6 +1280,7 @@ paths:
   /v1/companies/{companyID}/quote-requests/{requestID}/decline:
     parameters: [{$ref: '#/components/parameters/CompanyID'}, {$ref: '#/components/parameters/RequestID'}]
     post:
+      operationId: declineQuoteRequest
       tags: [quotes]
       summary: Decline (pending/reviewing -> declined)
       security: [{session: []}]
@@ -1226,6 +1293,7 @@ paths:
   # ---------------------------------------------------------------- platform admin
   /v1/admin/companies:
     get:
+      operationId: listAdminCompanies
       tags: [admin]
       summary: All companies (platform admin)
       security: [{session: []}]
@@ -1236,6 +1304,7 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /v1/admin/room-templates:
     get:
+      operationId: listAdminRoomTemplates
       tags: [admin]
       summary: All room templates incl. drafts (platform admin)
       security: [{session: []}]
@@ -1243,6 +1312,7 @@ paths:
         '200': {description: OK, content: {application/json: {schema: {type: object, properties: {templates: {type: array, items: {$ref: '#/components/schemas/RoomTemplate'}}}}}}}
         '403': {$ref: '#/components/responses/Forbidden'}
     post:
+      operationId: createAdminRoomTemplate
       tags: [admin]
       summary: Create a room template (draft by default)
       security: [{session: []}]
@@ -1264,6 +1334,7 @@ paths:
   /v1/admin/room-templates/{templateID}:
     parameters: [{$ref: '#/components/parameters/TemplateID'}]
     patch:
+      operationId: updateAdminRoomTemplate
       tags: [admin]
       summary: Edit or publish a room template
       security: [{session: []}]

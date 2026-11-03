@@ -18,6 +18,13 @@ Phases 3–8. Not covered: penetration testing, dependency CVE scanning
 | 5 | Dead sessions accumulated forever. | Hourly cleanup job + `cmd/admin cleanup-sessions`. |
 | 6 | Header size used Go's 1 MiB default. | `MaxHeaderBytes` 64 KiB. |
 
+## Phase 10 frontend-boundary additions (2026-11-03)
+
+| Finding | Fix |
+|---|---|
+| Browser access on a separate configured origin had no CORS response headers. | Optional credentialed CORS echoes exact `ALLOWED_ORIGINS`; wildcard origins are never used. The normal Next.js rewrite remains same-origin. |
+| A reverse proxy either hid the client IP or made forwarding headers tempting to trust globally. | `TRUSTED_PROXIES` accepts only validated IPs/CIDRs for the Next.js server; untrusted peers cannot influence Gin's client IP. |
+
 ## Verified (no change needed)
 
 - **Tenant isolation.** Every company-, user- and customer-scoped query
@@ -51,8 +58,6 @@ Phases 3–8. Not covered: penetration testing, dependency CVE scanning
 |---|---|
 | Email enumeration on registration (`email_taken`) | Normal for sign-up; rate limited. |
 | In-memory rate limits | Single-process only; move to PostgreSQL/Redis before running several instances. |
-| No CORS headers yet | The frontend on another origin cannot read responses until CORS is configured — **Phase 10** (depends on deployment topology). |
 | Files are not virus-scanned | Type-checked only; documented. |
 | No `govulncheck` | Add to CI when the repository is pushed. |
-| Trusted proxies | None configured; rate limits key on the proxy's IP when behind one. |
 | Name search uses `ILIKE '%q%'` | Fine at current scale (measured < 5 ms at 5,000 products); add a `pg_trgm` index when the catalog grows. |

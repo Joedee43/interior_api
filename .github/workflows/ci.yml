@@ -33,6 +33,10 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: gofmt
         run: |
           unformatted="$(gofmt -l .)"
@@ -46,6 +50,9 @@ jobs:
 
       - name: build
         run: go build ./...
+
+      - name: OpenAPI TypeScript generation
+        run: npx --yes openapi-typescript@7.10.1 internal/apidocs/openapi.yaml --output /tmp/interior-api.d.ts
 
       - name: test (with race detector)
         run: go test -race -count=1 ./...

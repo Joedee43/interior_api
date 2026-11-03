@@ -10,10 +10,12 @@ Windows PowerShell with PostgreSQL 18 under `D:\postgres-18`; adjust paths.
 | `APP_ENV` | `production` — JSON logs, Gin release mode, `Secure` + `__Host-` session cookie, HSTS |
 | HTTPS | Required in production (cookies are `Secure`). Terminate TLS at a reverse proxy or load balancer. |
 | `ALLOWED_ORIGINS` | The exact frontend origin(s), e.g. `https://app.example.com` |
+| `TRUSTED_PROXIES` | Only the Next.js server/private proxy IPs or CIDRs; forwarding headers from other peers are ignored |
+| `ENABLE_CORS` | `false` for the normal same-origin Next.js rewrite; enable only for an intentional separate-origin deployment |
 | `DATABASE_URL` | A dedicated database user that owns the schema; never the `postgres` superuser in production |
 | `STORAGE_DIR` | An absolute path on a disk that is backed up (uploaded images and 3D models live here) |
 | Migrations | Run `go run ./cmd/migrate up` (or the built binary) **before** starting a new API version |
-| Proxies | The API trusts no proxy headers (`X-Forwarded-For` is ignored). Behind a proxy, client IPs in logs and rate limits are the proxy's until trusted proxies are configured. |
+| Proxies | Next.js overwrites `X-Forwarded-For` and `X-Real-IP`; Go accepts them only from `TRUSTED_PROXIES`. Never use a public/unrestricted CIDR. |
 | Instances | Run **one** API process: rate limits are in memory per process. |
 
 ## Backups
@@ -80,6 +82,6 @@ go run ./cmd/admin list-platform-admins
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push once the repository is on
-GitHub: gofmt, `go vet`, staticcheck, build, the full test suite **with the
-race detector** against PostgreSQL 18, and a full migrations down/up round
-trip.
+GitHub: gofmt, `go vet`, staticcheck, build, an OpenAPI-to-TypeScript generation
+smoke test, the full test suite **with the race detector** against PostgreSQL
+18, and a full migrations down/up round trip.
