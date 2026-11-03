@@ -66,6 +66,13 @@ go run ./cmd/admin cleanup-sessions -retain 720h
 Users can sign out everywhere (`POST /v1/auth/logout-all`); changing a
 password also revokes every session.
 
+## Development seed
+
+`go run ./cmd/seed` replaces only the documented `demo-furniture` company
+and the three `demo*@example.com` accounts. It creates two published products,
+images, a KHR-material-variant GLB and a customer design. Re-running it is safe;
+old demo media files are removed. The command refuses `APP_ENV=production`.
+
 ## Platform admins
 
 ```powershell

@@ -8,6 +8,7 @@ Go + Gin + PostgreSQL backend for the immersive furniture platform.
 cmd/api/          API server — composition root (config → logger → pool → router → http.Server)
 cmd/migrate/      goose migration runner
 cmd/admin/        operator CLI (grant/revoke/list platform admins; cleanup-sessions)
+cmd/seed/         repeatable development-only Next.js demo data and media
 internal/config/  environment loading + validation
 internal/postgres/  pgxpool setup, WithTx, DBTX (no business SQL); pgtest/ for integration tests
 internal/httpapi/ routing, middleware, JSON error format, origin check, rate limiter, health
@@ -38,6 +39,8 @@ copy .env.example .env          # then put your real password in .env
 & "D:\postgres-18\bin\psql.exe" -h localhost -p 5433 -U postgres -c "CREATE DATABASE interior_test;"
 go run ./cmd/migrate up
 go run ./cmd/migrate -test up
+# Optional: replace the documented demo accounts/catalog/design.
+go run ./cmd/seed
 ```
 
 ## Run
