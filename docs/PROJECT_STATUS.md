@@ -1,7 +1,7 @@
 # Project status and handoff — interior_api
 
-**Last updated:** 2026-11-03 · **Branch:** `phase-10` from `main` at `60def72` ·
-**Phases done:** 0–9 of 10 (backend only) · **In progress:** accepted Phase 10 preparation
+**Last updated:** 2026-11-03 · **Branch:** `phase-10` at `ee1acf4` + this document ·
+**Phases done:** 0–10 of 10 (backend) · **Next:** frontend Phase 1 decisions in `interior_web`
 
 This is the working memory of the project, written for the next Claude Code session (on a
 new device) and for the developer. Read it fully before changing anything; then confirm the
@@ -55,7 +55,8 @@ with Express/JavaScript where useful. The code itself is commented in that spiri
 
 ## 3. Current state
 
-All of Phases 0–9 are implemented, tested and merged into `main` (30 commits). Highlights:
+Phases 0–9 are merged into `main`; Phase 10 is implemented and verified on `phase-10`, waiting
+for the developer's explicit **"merge"**. Highlights:
 
 | Phase | What exists |
 |---|---|
@@ -68,6 +69,7 @@ All of Phases 0–9 are implemented, tested and merged into `main` (30 commits).
 | 7 | Customer accounts, platform room templates, saved designs with placed furniture, estimates |
 | 8 | Quotation workflow (state machine, snapshots, revisions, expiry, row locks) |
 | 9 | Security review + fixes, OpenAPI 3.1 spec with drift test, password change / logout-all, session cleanup job, GitHub Actions CI, backups |
+| 10 | Next.js boundary: trusted proxies, optional exact-origin CORS, stable OpenAPI operation IDs/types, frontend handoff and repeatable demo seed |
 
 **Not verified yet:** the GitHub Actions workflow has never run (it starts on the first push);
 `go test -race` has never run (no C compiler on the old machine — CI provides it).
@@ -111,6 +113,7 @@ Paths in docs and scripts assume `D:\postgres-18\bin` — adjust (`scripts/backu
 cmd/api/            composition root: config → logger → pool → services → router → http.Server
 cmd/migrate/        goose runner: up | down | status | create <name>  (-test = TEST_DATABASE_URL)
 cmd/admin/          grant/revoke/list platform admins, cleanup-sessions
+cmd/seed/           repeatable development-only frontend demo accounts, catalog, GLB and design
 internal/config/    env loading + validation (Load/FromLookup)
 internal/postgres/  pgxpool, WithTx, DBTX interface, IsUniqueViolation; pgtest/ (test DB helper)
 internal/httpapi/   router, middleware (request id, logging, recovery, security headers,
@@ -125,7 +128,7 @@ internal/apidocs/   openapi.yaml (embedded, GET /openapi.yaml) + drift test
 internal/apitest/   full-stack test harness (only imported by _test.go files)
 migrations/         00001–00014 SQL (goose), see migrations/README.md for conventions
 requests/           .http files (VS Code REST Client) for manual testing of every area
-docs/               OPERATIONS.md, SECURITY_REVIEW.md, this file
+docs/               OPERATIONS.md, SECURITY_REVIEW.md, FRONTEND_HANDOFF.md, this file
 scripts/            backup.ps1
 .github/workflows/  ci.yml (gofmt, vet, staticcheck, build, tests with -race, migrations)
 ```
@@ -199,9 +202,9 @@ compile-time check `var _ Iface = (*Impl)(nil)`.
 
 ---
 
-## 7. Phase 10 — accepted and in progress
+## 7. Phase 10 — complete on `phase-10`, awaiting merge
 
-Phase 10 prepares the API for the Next.js frontend. The developer accepted these decisions on
+Phase 10 prepared the API for the Next.js frontend. The developer accepted these decisions on
 2026-10-30 and approved implementation on 2026-11-03:
 
 1. **Browser/API topology:** use one origin through Next.js. In development and production,
@@ -228,7 +231,12 @@ Phase 10 prepares the API for the Next.js frontend. The developer accepted these
    GLB, a customer and a design. It is repeatable and refuses to run in production.
 7. **Version stability:** `/v1` changes are additive only; breaking changes go to `/v2`.
 
-After this backend phase is verified and merged, frontend work begins in `interior_web`. Its ten
+Verification completed: formatting, vet, staticcheck, build, all tests against PostgreSQL,
+OpenAPI TypeScript generation, production seed refusal, repeatable seed integration, a trusted-
+proxy mutation test, live seeded catalog/GLB requests and clean shutdown. Every Phase 10 commit
+also builds independently.
+
+After this backend phase is merged, frontend work begins in `interior_web`. Its ten
 delivery steps are separate phases following decisions → plan → approval → branch → verify →
 report → developer says **"merge"**.
 
@@ -236,10 +244,10 @@ report → developer says **"merge"**.
 
 ## 8. Known gaps and accepted risks
 
-See `docs/SECURITY_REVIEW.md` for the full list. Main ones: no CORS yet (Phase 10);
-in-memory rate limits (single process only); files type-checked but not virus-scanned;
-no `govulncheck` yet; no trusted-proxy config; name search is `ILIKE` (add `pg_trgm` later);
-no email (so no invitations, password reset or notifications); no orders/payment.
+See `docs/SECURITY_REVIEW.md` for the full list. Main ones: in-memory rate limits (single process
+only); files type-checked but not virus-scanned; no `govulncheck` yet; name search is `ILIKE`
+(add `pg_trgm` later); no email (so no invitations, password reset or notifications); no
+seller-side model-size check yet; no orders/payment.
 
 ---
 
@@ -265,14 +273,14 @@ no email (so no invitations, password reset or notifications); no orders/payment
 
 ## 10. Development data on the old machine (not in git)
 
-Created during live testing; recreate or restore from a backup if wanted:
+Created repeatably by `go run ./cmd/seed` (the command replaces only these documented identities):
 
 | Account | Password | What |
 |---|---|---|
 | `demo@example.com` | `demo password 123` | admin of company `demo-furniture` (ETB) |
 | `demo-staff@example.com` | `staff password 123` | staff of `demo-furniture` |
-| `demo-customer@example.com` | `customer password 1` | customer with design "My living room" and an accepted quote (62,500 ETB) |
+| `demo-customer@example.com` | `customer password 1` | customer with design "My living room" and a placed grey chair |
 
 Products: *Oslo 3-Seat Sofa* (published, 48,500 ETB) and *Addis Lounge Chair* (published,
-Fabric × Colour, 4 variants, sample PNG + GLB in `./storage`). `interior_db` also contained an
-unrelated legacy table `schema_migrations` from an earlier experiment (left untouched).
+Colour with grey/blue SKU variants, generated PNG + conforming `KHR_materials_variants` GLB in
+`./storage`). The seed is safe to rerun and refuses `APP_ENV=production`.
