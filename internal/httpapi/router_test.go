@@ -172,3 +172,47 @@ func TestRecoveryReturnsJSON500(t *testing.T) {
 		t.Errorf("unexpected body: %s", w.Body)
 	}
 }
+
+func TestTrustedProxyClientIP(t *testing.T) {
+	newRouter := func(trusted []string) *gin.Engine {
+		r := NewRouter(Deps{
+			Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+			DB:             fakePinger{},
+			TrustedProxies: trusted,
+		})
+		r.GET("/ip", func(c *gin.Context) { c.String(http.StatusOK, c.ClientIP()) })
+		return r
+	}
+	request := func(r http.Handler, remote, xff, realIP string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/ip", nil)
+		req.RemoteAddr = remote
+		if xff != "" {
+			req.Header.Set("X-Forwarded-For", xff)
+		}
+		if realIP != "" {
+			req.Header.Set("X-Real-IP", realIP)
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	t.Run("trusted Next.js server", func(t *testing.T) {
+		w := request(newRouter([]string{"10.0.0.2"}), "10.0.0.2:4000", "203.0.113.8", "203.0.113.8")
+		if got := w.Body.String(); got != "203.0.113.8" {
+			t.Errorf("client IP = %q, want forwarded browser IP", got)
+		}
+	})
+	t.Run("untrusted direct caller cannot spoof", func(t *testing.T) {
+		w := request(newRouter([]string{"10.0.0.2"}), "198.51.100.4:4000", "203.0.113.8", "203.0.113.8")
+		if got := w.Body.String(); got != "198.51.100.4" {
+			t.Errorf("client IP = %q, want direct peer", got)
+		}
+	})
+	t.Run("malformed forwarding falls back to trusted peer", func(t *testing.T) {
+		w := request(newRouter([]string{"10.0.0.2"}), "10.0.0.2:4000", "not-an-ip", "also-bad")
+		if got := w.Body.String(); got != "10.0.0.2" {
+			t.Errorf("client IP = %q, want proxy peer", got)
+		}
+	})
+}

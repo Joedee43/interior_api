@@ -35,8 +35,11 @@ func TestFromLookup_Defaults(t *testing.T) {
 	if cfg.SessionTTL != 7*24*time.Hour {
 		t.Errorf("SessionTTL = %v, want 168h", cfg.SessionTTL)
 	}
-	if len(cfg.AllowedOrigins) != 1 || cfg.AllowedOrigins[0] != "http://localhost:5173" {
-		t.Errorf("AllowedOrigins = %v, want [http://localhost:5173]", cfg.AllowedOrigins)
+	if len(cfg.AllowedOrigins) != 1 || cfg.AllowedOrigins[0] != "http://localhost:3000" {
+		t.Errorf("AllowedOrigins = %v, want [http://localhost:3000]", cfg.AllowedOrigins)
+	}
+	if cfg.EnableCORS || len(cfg.TrustedProxies) != 0 {
+		t.Errorf("cross-origin/proxy defaults are not secure: %+v", cfg)
 	}
 	if cfg.CookieSecure() {
 		t.Error("CookieSecure() = true in development, want false")
@@ -46,14 +49,19 @@ func TestFromLookup_Defaults(t *testing.T) {
 func TestFromLookup_AllowedOrigins(t *testing.T) {
 	cfg, err := FromLookup(lookupFrom(map[string]string{
 		"DATABASE_URL":    "x",
-		"ALLOWED_ORIGINS": " https://app.example.com , http://localhost:5173 ,",
+		"ALLOWED_ORIGINS": " https://app.example.com , http://localhost:3000 ,",
+		"TRUSTED_PROXIES": " 10.0.0.5 , 10.20.0.0/16 ,",
+		"ENABLE_CORS":     "true",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := []string{"https://app.example.com", "http://localhost:5173"}
+	want := []string{"https://app.example.com", "http://localhost:3000"}
 	if len(cfg.AllowedOrigins) != 2 || cfg.AllowedOrigins[0] != want[0] || cfg.AllowedOrigins[1] != want[1] {
 		t.Errorf("AllowedOrigins = %v, want %v", cfg.AllowedOrigins, want)
+	}
+	if !cfg.EnableCORS || len(cfg.TrustedProxies) != 2 || cfg.TrustedProxies[0] != "10.0.0.5" || cfg.TrustedProxies[1] != "10.20.0.0/16" {
+		t.Errorf("proxy/CORS config not parsed: %+v", cfg)
 	}
 }
 
@@ -100,13 +108,23 @@ func TestFromLookup_Invalid(t *testing.T) {
 		},
 		{
 			name:    "origin with path",
-			env:     map[string]string{"DATABASE_URL": "x", "ALLOWED_ORIGINS": "http://localhost:5173/"},
+			env:     map[string]string{"DATABASE_URL": "x", "ALLOWED_ORIGINS": "http://localhost:3000/"},
 			wantErr: []string{"ALLOWED_ORIGINS"},
 		},
 		{
 			name:    "origin without scheme",
-			env:     map[string]string{"DATABASE_URL": "x", "ALLOWED_ORIGINS": "localhost:5173"},
+			env:     map[string]string{"DATABASE_URL": "x", "ALLOWED_ORIGINS": "localhost:3000"},
 			wantErr: []string{"ALLOWED_ORIGINS"},
+		},
+		{
+			name:    "bad trusted proxy",
+			env:     map[string]string{"DATABASE_URL": "x", "TRUSTED_PROXIES": "next.internal"},
+			wantErr: []string{"TRUSTED_PROXIES"},
+		},
+		{
+			name:    "bad cors boolean",
+			env:     map[string]string{"DATABASE_URL": "x", "ENABLE_CORS": "sometimes"},
+			wantErr: []string{"ENABLE_CORS"},
 		},
 		{
 			name:    "reports every problem at once",

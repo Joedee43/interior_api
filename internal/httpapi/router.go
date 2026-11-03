@@ -18,6 +18,12 @@ type Deps struct {
 	// AllowedOrigins are browser origins (scheme://host[:port]) allowed to
 	// make state-changing requests; see checkOrigin.
 	AllowedOrigins []string
+	// TrustedProxies are the Next.js server IPs/CIDRs allowed to supply
+	// forwarding headers. Keep nil/empty when the API is reached directly.
+	TrustedProxies []string
+	// EnableCORS permits credentialed browser calls from AllowedOrigins.
+	// The normal same-origin Next.js rewrite leaves this disabled.
+	EnableCORS bool
 	// HTTPS enables headers that only make sense over TLS (HSTS).
 	HTTPS bool
 	// Extra mounts routes outside /v1 (e.g. GET /openapi.yaml).
@@ -33,10 +39,13 @@ type Deps struct {
 func NewRouter(d Deps) *gin.Engine {
 	r := gin.New()
 
-	// No proxy is trusted until we deploy behind a known one; otherwise a
-	// client could spoof X-Forwarded-For and fake its IP (matters for rate
-	// limiting and audit logs later).
-	_ = r.SetTrustedProxies(nil)
+	// Gin ignores forwarding headers from every peer except these explicit
+	// addresses/CIDRs. Config validates them before they reach the router.
+	if len(d.TrustedProxies) == 0 {
+		_ = r.SetTrustedProxies(nil)
+	} else if err := r.SetTrustedProxies(d.TrustedProxies); err != nil {
+		panic("httpapi: invalid pre-validated trusted proxy: " + err.Error())
+	}
 	r.HandleMethodNotAllowed = true
 	r.NoRoute(notFound)
 	r.NoMethod(methodNotAllowed)
@@ -45,6 +54,9 @@ func NewRouter(d Deps) *gin.Engine {
 	// Body size limits are per use: DecodeJSON caps JSON at MaxBodyBytes,
 	// uploads set their own (larger) cap.
 	r.Use(requestID(), requestLogger(d.Logger), recovery(d.Logger), securityHeaders(d.HTTPS))
+	if d.EnableCORS {
+		r.Use(cors(d.AllowedOrigins))
+	}
 
 	health := &healthHandler{db: d.DB, log: d.Logger, timeout: 2 * time.Second}
 	// Operational endpoints stay unversioned; they are not part of the

@@ -88,6 +88,8 @@ func run() error {
 		Logger:         log,
 		DB:             pool,
 		AllowedOrigins: cfg.AllowedOrigins,
+		TrustedProxies: cfg.TrustedProxies,
+		EnableCORS:     cfg.EnableCORS,
 		HTTPS:          cfg.CookieSecure(), // production is served over HTTPS
 		Extra:          []func(*gin.Engine){apidocs.Mount},
 		V1Routes: []func(*gin.RouterGroup){

@@ -30,6 +30,49 @@ func securityHeaders(https bool) gin.HandlerFunc {
 	}
 }
 
+// cors enables the optional separate-origin deployment. The usual Next.js
+// rewrite is same-origin and does not need these headers. Because sessions
+// use cookies, allowed origins are echoed exactly; wildcard origins are never
+// valid together with Access-Control-Allow-Credentials.
+func cors(allowed []string) gin.HandlerFunc {
+	set := make(map[string]struct{}, len(allowed))
+	for _, origin := range allowed {
+		set[origin] = struct{}{}
+	}
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if origin == "" {
+			c.Next()
+			return
+		}
+		c.Header("Vary", "Origin")
+		if _, ok := set[origin]; !ok {
+			if c.Request.Method == http.MethodOptions {
+				WriteError(c, http.StatusForbidden, CodeForbiddenOrigin, "request origin not allowed")
+				return
+			}
+			c.Next()
+			return
+		}
+
+		h := c.Writer.Header()
+		h.Set("Access-Control-Allow-Origin", origin)
+		h.Set("Access-Control-Allow-Credentials", "true")
+		h.Set("Access-Control-Expose-Headers", "X-Request-ID, ETag, Accept-Ranges, Content-Range")
+		if c.Request.Method == http.MethodOptions {
+			h.Add("Vary", "Access-Control-Request-Method")
+			h.Add("Vary", "Access-Control-Request-Headers")
+			h.Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
+			h.Set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID")
+			h.Set("Access-Control-Max-Age", "600")
+			c.Status(http.StatusNoContent)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 // checkOrigin is the CSRF defence for cookie-authenticated requests.
 //
 // Browsers attach an Origin header to every cross-origin POST/PATCH/DELETE,

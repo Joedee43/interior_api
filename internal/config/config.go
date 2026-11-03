@@ -6,6 +6,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -34,8 +35,14 @@ type Config struct {
 	// StorageDir is where uploaded media files live (local disk store).
 	StorageDir string
 	// AllowedOrigins are browser origins allowed to make state-changing
-	// requests (CSRF defence), e.g. the SvelteKit dev server.
+	// requests (CSRF defence), e.g. the Next.js dev server.
 	AllowedOrigins []string
+	// TrustedProxies are the Next.js server IPs/CIDRs from which Gin may
+	// accept forwarding headers. An empty list trusts nobody.
+	TrustedProxies []string
+	// EnableCORS is only needed when the browser intentionally calls Go on
+	// another same-site origin instead of using the Next.js rewrite.
+	EnableCORS bool
 }
 
 // CookieSecure reports whether cookies must carry the Secure flag. Only
@@ -92,6 +99,18 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 		}
 		return d
 	}
+	boolean := func(key string, fallback bool) bool {
+		raw := get(key, "")
+		if raw == "" {
+			return fallback
+		}
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: must be true or false, got %q", key, raw))
+			return fallback
+		}
+		return v
+	}
 
 	cfg := Config{
 		Env:         Env(get("APP_ENV", string(EnvDevelopment))),
@@ -106,9 +125,10 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 		},
 		SessionTTL: duration("SESSION_TTL", 7*24*time.Hour),
 		StorageDir: get("STORAGE_DIR", "storage"),
+		EnableCORS: boolean("ENABLE_CORS", false),
 	}
 
-	for _, raw := range strings.Split(get("ALLOWED_ORIGINS", "http://localhost:5173"), ",") {
+	for _, raw := range strings.Split(get("ALLOWED_ORIGINS", "http://localhost:3000"), ",") {
 		origin := strings.TrimSpace(raw)
 		if origin == "" {
 			continue
@@ -117,10 +137,23 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 		// slash — because that is what browsers send in the Origin header.
 		u, err := url.Parse(origin)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Path != "" || u.RawQuery != "" {
-			errs = append(errs, fmt.Errorf("ALLOWED_ORIGINS: %q must look like https://example.com or http://localhost:5173", origin))
+			errs = append(errs, fmt.Errorf("ALLOWED_ORIGINS: %q must look like https://example.com or http://localhost:3000", origin))
 			continue
 		}
 		cfg.AllowedOrigins = append(cfg.AllowedOrigins, origin)
+	}
+	for _, raw := range strings.Split(get("TRUSTED_PROXIES", ""), ",") {
+		proxy := strings.TrimSpace(raw)
+		if proxy == "" {
+			continue
+		}
+		if ip := net.ParseIP(proxy); ip == nil {
+			if _, _, err := net.ParseCIDR(proxy); err != nil {
+				errs = append(errs, fmt.Errorf("TRUSTED_PROXIES: %q must be an IP address or CIDR", proxy))
+				continue
+			}
+		}
+		cfg.TrustedProxies = append(cfg.TrustedProxies, proxy)
 	}
 
 	switch cfg.Env {
