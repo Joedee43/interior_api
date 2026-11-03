@@ -1,7 +1,7 @@
 # Project status and handoff — interior_api
 
-**Last updated:** 2026-10-25 · **Branch:** `main` at `98c8cba` + this document ·
-**Phases done:** 0–9 of 10 (backend only) · **Waiting on:** the developer's Phase 10 decisions
+**Last updated:** 2026-11-03 · **Branch:** `phase-10` from `main` at `60def72` ·
+**Phases done:** 0–9 of 10 (backend only) · **In progress:** accepted Phase 10 preparation
 
 This is the working memory of the project, written for the next Claude Code session (on a
 new device) and for the developer. Read it fully before changing anything; then confirm the
@@ -16,8 +16,8 @@ A **web-first, multi-company furniture commerce platform**: companies publish fu
 room, and request quotations. The differentiator is **seeing fit and appearance before buying**.
 
 - **This repository is the backend only:** Go + Gin + PostgreSQL (pgx/pgxpool).
-- **Frontend (later, not started):** SvelteKit + Threlte + Three.js, in a separate folder/repo.
-  **Do not create frontend code** until the developer explicitly asks.
+- **Frontend (accepted, not started):** Next.js App Router + TypeScript + React Three Fiber/Drei
+  + Three.js, in the separate sibling repository/folder `interior_web`.
 - **Mobile:** later; no framework chosen.
 - **Docker/WSL: not used** (WSL failed on the original machine). PostgreSQL runs natively.
 
@@ -199,33 +199,38 @@ compile-time check `var _ Iface = (*Impl)(nil)`.
 
 ---
 
-## 7. Phase 10 — pending decisions (ask the developer; nothing built yet)
+## 7. Phase 10 — accepted and in progress
 
-Phase 10 = prepare the API for the SvelteKit frontend (still **no frontend code**). The
-following was presented on 2026-10-25 and is **awaiting an answer**:
+Phase 10 prepares the API for the Next.js frontend. The developer accepted these decisions on
+2026-10-30 and approved implementation on 2026-11-03:
 
-1. **How the browser reaches the API (CORS):**
-   - **A (recommended for production):** one origin through SvelteKit — the browser talks only to
-     `app.example.com`; SvelteKit forwards `/v1/*` to Go internally (Vite dev proxy in
-     development). No CORS, first-party Lax cookies keep working. Go then needs a
-     `TRUSTED_PROXIES` setting so rate limits/logs see real client IPs.
-   - **B:** separate subdomains (`app.` → `api.`): CORS with credentials restricted to
-     `ALLOWED_ORIGINS`; Lax cookies still work (same site).
-   - **C:** unrelated domains — needs third-party cookies (`SameSite=None`), increasingly blocked
-     by browsers; not viable for cookie auth.
-   - Recommendation: design for A **and** add B's CORS support behind configuration.
-2. **`operationId`s for all 74 operations** (for openapi-typescript / Orval client generation),
-   with the drift test also enforcing uniqueness; smoke-test type generation with a pinned tool.
-3. **`docs/FRONTEND_HANDOFF.md`:** auth/cookie/Origin flow, error codes, pagination, money/unit
-   formatting, Three.js mapping (mm ÷ 1000 → metres, degrees → radians around Y, origin),
-   `material_key` ↔ GLTF materials / `KHR_materials_variants`, media URLs, example flows
-   (browse, product page, design editor, quote).
-4. **`cmd/seed` (development only):** a demo seller, products with variants, images and a
-   sample GLB, a customer with a design; refuses to run with `APP_ENV=production`.
-5. **`/v1` stability rule:** only additive changes; breaking changes go to `/v2`.
+1. **Browser/API topology:** use one origin through Next.js. In development and production,
+   Next.js rewrites `/v1/*` to Go; the browser sees only the frontend origin, so first-party Lax
+   cookies work without CORS. Also provide optional credentialed CORS, restricted to exact
+   `ALLOWED_ORIGINS`, for a deliberate same-site `app.` → `api.` deployment.
+2. **Proxy trust and client IP:** add `TRUSTED_PROXIES`; Go trusts only the Next.js server/private
+   proxy network. Rewrites carry forwarding headers, and Next.js server-side fetches explicitly
+   overwrite `X-Forwarded-For` and `X-Real-IP` with the client IP resolved from trusted request
+   context. Never trust arbitrary browser-supplied forwarding chains.
+3. **OpenAPI client contract:** add unique `operationId`s to all operations, enforce uniqueness
+   in the drift test, and smoke-test generated TypeScript with a pinned tool.
+4. **`docs/FRONTEND_HANDOFF.md`:** document auth/cookies, errors, pagination, units/money, media
+   and example flows. `ALLOWED_ORIGINS` must contain the frontend origin because forwarded browser
+   mutations retain `Origin`; server-side calls carry no `Origin` and are permitted by
+   `checkOrigin`. Convert mm ÷ 1000 only at the Three.js boundary. Positive `rotation_deg` is
+   counter-clockwise from above and maps directly to positive Three.js Y rotation.
+5. **GLB contract:** self-contained glTF 2.0 GLBs use metres, Y-up, real scale, a floor-level
+   centred pivot and `KHR_materials_variants`. Each sellable SKU has an exactly matching KHR
+   variant name; every `material_key` names an embedded material. The frontend never resizes a
+   model and warns in development when any bounding-box dimension differs from the catalog by
+   more than 5%. A seller-side size check beside `material_check` is a later backend item.
+6. **Development seed:** add `cmd/seed` with a demo seller, variants, images, a conforming sample
+   GLB, a customer and a design. It is repeatable and refuses to run in production.
+7. **Version stability:** `/v1` changes are additive only; breaking changes go to `/v2`.
 
-After Phase 10 is accepted, the frontend effort (SvelteKit + Threlte + Three.js) can begin —
-only when the developer asks.
+After this backend phase is verified and merged, frontend work begins in `interior_web`. Its ten
+delivery steps are separate phases following decisions → plan → approval → branch → verify →
+report → developer says **"merge"**.
 
 ---
 
