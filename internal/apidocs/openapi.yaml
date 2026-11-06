@@ -59,6 +59,7 @@ components:
     TemplateID: {name: templateID, in: path, required: true, schema: {type: string, format: uuid}}
     Limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
     Cursor: {name: cursor, in: query, description: '`next_cursor` from the previous page, unchanged.', schema: {type: string}}
+    DesignIfMatch: {name: If-Match, in: header, required: true, description: 'Aggregate design ETag from the latest design response.', schema: {type: string, examples: ['"design-1"']}}
 
   responses:
     NoContent: {description: Done; no body.}
@@ -76,6 +77,9 @@ components:
       content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
     Conflict:
       description: The current state does not allow it; see `error.code`.
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    PreconditionRequired:
+      description: A design mutation omitted its required `If-Match` revision (`precondition_required`).
       content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
     TooLarge:
       description: Body or file too large (`payload_too_large`).
@@ -1044,7 +1048,7 @@ paths:
                 height_mm: {type: integer}
                 features: {$ref: '#/components/schemas/Features'}
       responses:
-        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/DesignDetail'}}}}
+        '201': {description: Created, headers: {ETag: {schema: {type: string}}}, content: {application/json: {schema: {$ref: '#/components/schemas/DesignDetail'}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
   /v1/designs/{designID}:
@@ -1055,7 +1059,7 @@ paths:
       summary: A design with items and estimate (owner only)
       security: [{session: []}]
       responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/DesignDetail'}}}}
+        '200': {description: OK, headers: {ETag: {schema: {type: string}}}, content: {application/json: {schema: {$ref: '#/components/schemas/DesignDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
       operationId: updateDesign
@@ -1063,22 +1067,27 @@ paths:
       summary: Rename, resize or change features
       description: Resizing that would leave items outside is `items_outside_room`.
       security: [{session: []}]
+      parameters: [{$ref: '#/components/parameters/DesignIfMatch'}]
       requestBody:
         required: true
         content: {application/json: {schema: {type: object, properties: {name: {type: string}, width_mm: {type: integer}, depth_mm: {type: integer}, height_mm: {type: integer}, features: {$ref: '#/components/schemas/Features'}}}}}
       responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/DesignDetail'}}}}
+        '200': {description: OK, headers: {ETag: {schema: {type: string}}}, content: {application/json: {schema: {$ref: '#/components/schemas/DesignDetail'}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
     delete:
       operationId: deleteDesign
       tags: [designs]
       summary: Delete a design
       security: [{session: []}]
+      parameters: [{$ref: '#/components/parameters/DesignIfMatch'}]
       responses:
         '204': {$ref: '#/components/responses/NoContent'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
   /v1/designs/{designID}/items:
     parameters: [{$ref: '#/components/parameters/DesignID'}]
     post:
@@ -1086,12 +1095,14 @@ paths:
       tags: [designs]
       summary: Place a product (published; variant required when it has options; max 200)
       security: [{session: []}]
+      parameters: [{$ref: '#/components/parameters/DesignIfMatch'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ItemInput'}}}}
       responses:
-        '201': {description: Placed, content: {application/json: {schema: {$ref: '#/components/schemas/DesignItem'}}}}
+        '201': {description: Placed, headers: {ETag: {schema: {type: string}}}, content: {application/json: {schema: {$ref: '#/components/schemas/DesignItem'}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
   /v1/designs/{designID}/items/{itemID}:
     parameters: [{$ref: '#/components/parameters/DesignID'}, {$ref: '#/components/parameters/ItemID'}]
     patch:
@@ -1099,19 +1110,25 @@ paths:
       tags: [designs]
       summary: Move, rotate or change the variant
       security: [{session: []}]
+      parameters: [{$ref: '#/components/parameters/DesignIfMatch'}]
       requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {x_mm: {type: integer}, y_mm: {type: integer}, z_mm: {type: integer}, rotation_deg: {type: number}, variant_id: {type: string, format: uuid}}}}}}
       responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/DesignItem'}}}}
+        '200': {description: OK, headers: {ETag: {schema: {type: string}}}, content: {application/json: {schema: {$ref: '#/components/schemas/DesignItem'}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
     delete:
       operationId: deleteDesignItem
       tags: [designs]
       summary: Remove an item
       security: [{session: []}]
+      parameters: [{$ref: '#/components/parameters/DesignIfMatch'}]
       responses:
-        '204': {$ref: '#/components/responses/NoContent'}
+        '204': {description: Removed, headers: {ETag: {schema: {type: string}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
 
   # ---------------------------------------------------------------- quotes (customer)
   /v1/quote-requests/from-design:

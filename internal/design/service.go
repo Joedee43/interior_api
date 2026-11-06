@@ -369,9 +369,9 @@ type DesignUpdate struct {
 	Features *Features
 }
 
-func (s *Service) Update(ctx context.Context, userID, id string, upd DesignUpdate) (Detail, error) {
+func (s *Service) Update(ctx context.Context, userID, id string, expected int64, upd DesignUpdate) (Detail, error) {
 	err := postgres.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := lockDesign(ctx, tx, userID, id); err != nil {
+		if _, _, err := lockDesign(ctx, tx, userID, id, expected); err != nil {
 			return err
 		}
 		cur, err := getDesign(ctx, tx, userID, id)
@@ -418,8 +418,13 @@ func (s *Service) Update(ctx context.Context, userID, id string, upd DesignUpdat
 	return s.Get(ctx, userID, id)
 }
 
-func (s *Service) Delete(ctx context.Context, userID, id string) error {
-	return deleteDesign(ctx, s.pool, userID, id)
+func (s *Service) Delete(ctx context.Context, userID, id string, expected int64) error {
+	return postgres.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, _, err := lockDesign(ctx, tx, userID, id, expected); err != nil {
+			return err
+		}
+		return deleteDesign(ctx, tx, userID, id)
+	})
 }
 
 // ---- items ------------------------------------------------------------------
@@ -441,7 +446,7 @@ func requireCoord(v *int32, field string, p auth.Problems) int32 {
 	return *v
 }
 
-func (s *Service) AddItem(ctx context.Context, userID, designID string, in ItemInput) (PlacedItem, error) {
+func (s *Service) AddItem(ctx context.Context, userID, designID string, expected int64, in ItemInput) (PlacedItem, int64, error) {
 	pr := auth.Problems{}
 	it := Item{DesignID: designID, ProductID: in.ProductID, VariantID: in.VariantID}
 	it.XMM = requireCoord(in.XMM, "x_mm", pr)
@@ -453,15 +458,17 @@ func (s *Service) AddItem(ctx context.Context, userID, designID string, in ItemI
 		it.RotationDeg = normalizeRotation(*in.RotationDeg, pr)
 	}
 	if err := pr.Err(); err != nil {
-		return PlacedItem{}, err
+		return PlacedItem{}, 0, err
 	}
 
 	var out PlacedItem
+	var revision int64
 	err := postgres.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
-		room, err := lockDesign(ctx, tx, userID, designID)
+		room, next, err := lockDesign(ctx, tx, userID, designID, expected)
 		if err != nil {
 			return err
 		}
+		revision = next
 		bp := auth.Problems{}
 		validatePosition(it.XMM, it.YMM, it.ZMM, room, bp)
 		if err := bp.Err(); err != nil {
@@ -485,7 +492,7 @@ func (s *Service) AddItem(ctx context.Context, userID, designID string, in ItemI
 		out = PlacedItem{Item: saved, Info: info}
 		return nil
 	})
-	return out, err
+	return out, revision, err
 }
 
 // ItemUpdate moves, rotates or re-picks the variant of a placed item. The
@@ -498,13 +505,15 @@ type ItemUpdate struct {
 	VariantID   *string
 }
 
-func (s *Service) UpdateItem(ctx context.Context, userID, designID, itemID string, upd ItemUpdate) (PlacedItem, error) {
+func (s *Service) UpdateItem(ctx context.Context, userID, designID, itemID string, expected int64, upd ItemUpdate) (PlacedItem, int64, error) {
 	var out PlacedItem
+	var revision int64
 	err := postgres.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
-		room, err := lockDesign(ctx, tx, userID, designID)
+		room, nextRevision, err := lockDesign(ctx, tx, userID, designID, expected)
 		if err != nil {
 			return err
 		}
+		revision = nextRevision
 		cur, err := getItem(ctx, tx, designID, itemID)
 		if err != nil {
 			return err
@@ -552,23 +561,27 @@ func (s *Service) UpdateItem(ctx context.Context, userID, designID, itemID strin
 		return nil
 	})
 	if err != nil {
-		return PlacedItem{}, err
+		return PlacedItem{}, 0, err
 	}
 	if out.Info.Ref.ProductID == "" {
 		placed, err := s.describe(ctx, []Item{out.Item})
 		if err != nil {
-			return PlacedItem{}, err
+			return PlacedItem{}, 0, err
 		}
 		out = placed[0]
 	}
-	return out, nil
+	return out, revision, nil
 }
 
-func (s *Service) DeleteItem(ctx context.Context, userID, designID, itemID string) error {
-	return postgres.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := lockDesign(ctx, tx, userID, designID); err != nil {
+func (s *Service) DeleteItem(ctx context.Context, userID, designID, itemID string, expected int64) (int64, error) {
+	var revision int64
+	err := postgres.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, next, err := lockDesign(ctx, tx, userID, designID, expected)
+		if err != nil {
 			return err
 		}
+		revision = next
 		return deleteItem(ctx, tx, designID, itemID)
 	})
+	return revision, err
 }

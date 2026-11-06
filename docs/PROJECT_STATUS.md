@@ -1,7 +1,7 @@
 # Project status and handoff — interior_api
 
-**Last updated:** 2026-11-06 · **Branch:** `phase-6` (frontend Phase 6 contract support) ·
-**Phases done:** 0–10 of 10 (backend) · **Next:** frontend Phase 6 in `interior_web`
+**Last updated:** 2026-11-06 · **Branch:** `phase-7` (frontend Phase 7 contract support) ·
+**Phases done:** 0–10 of 10 (backend) · **Next:** interactive editor in `interior_web`
 
 This is the working memory of the project, written for the next Claude Code session (on a
 new device) and for the developer. Read it fully before changing anything; then confirm the
@@ -244,6 +244,12 @@ Frontend Phase 6 adds one additive design response field: `DesignItem.product.sk
 is the exact variant SKU or `null` for products without variants. The value was
 already resolved by the catalog placement service; no migration or persistence
 change was required.
+
+Frontend Phase 7 adds aggregate design revisions for conflict-safe autosave.
+Migration 00015 gives each design a monotonic revision. Detail/create/mutation
+responses expose it as an ETag, and every design/item mutation requires the
+latest value through `If-Match`. Competing editors receive `409 stale_revision`;
+failed mutations roll back their revision increment with the transaction.
 
 ---
 

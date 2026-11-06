@@ -135,7 +135,7 @@ func seedData(ctx context.Context, pool *pgxpool.Pool, files storage.Store, log 
 		return fmt.Errorf("create demo design: %w", err)
 	}
 	x, z, rotation := int32(1600), int32(1800), 30.0
-	if _, err := designSvc.AddItem(ctx, customer.ID, d.ID, design.ItemInput{
+	if _, _, err := designSvc.AddItem(ctx, customer.ID, d.ID, d.Revision, design.ItemInput{
 		ProductID: chair.ID, VariantID: &chairVariantID, XMM: &x, ZMM: &z, RotationDeg: &rotation,
 	}); err != nil {
 		return fmt.Errorf("place demo chair: %w", err)

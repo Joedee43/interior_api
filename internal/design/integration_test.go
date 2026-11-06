@@ -3,6 +3,7 @@ package design_test
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -395,6 +396,62 @@ func TestResizeRoom(t *testing.T) {
 	// Features are re-checked against the new size.
 	call(t, e, u, http.MethodPatch, path, `{"features":{"openings":[{"type":"window","wall":"north","offset_mm":1000,"width_mm":1400,"height_mm":1000,"sill_mm":900}]}}`, http.StatusOK)
 	expect(t, e, u, http.MethodPatch, path, `{"width_mm":2000}`, http.StatusBadRequest, "validation_failed", "features.openings[0]")
+}
+
+func TestDesignRevisionPreconditions(t *testing.T) {
+	e := apitest.New(t, apitest.Options{})
+	seller := e.RegisterCompany()
+	chair := publishedChair(t, e, seller, "Revision Chair", 12000)
+	owner := e.RegisterCustomer()
+	other := e.RegisterCustomer()
+
+	created := e.As(owner.Cookie, http.MethodPost, "/v1/designs", `{"name":"Versioned","template":"home-office-3x4"}`)
+	if created.Code != http.StatusCreated || created.Header().Get("ETag") != `"design-1"` {
+		t.Fatalf("create: %d etag=%q body=%s", created.Code, created.Header().Get("ETag"), created.Body)
+	}
+	var d designResp
+	apitest.Decode(t, created, &d)
+	path := "/v1/designs/" + d.ID
+
+	missing := e.Do(http.MethodPatch, path, `{"name":"Missing"}`, apitest.WithCookie(owner.Cookie))
+	if missing.Code != http.StatusPreconditionRequired || apitest.ErrorCode(t, missing) != "precondition_required" {
+		t.Fatalf("missing precondition: %d %s", missing.Code, missing.Body)
+	}
+
+	mutate := func(method, target, body, tag string) *httptest.ResponseRecorder {
+		return e.Do(method, target, body, apitest.WithCookie(owner.Cookie), apitest.WithHeader("If-Match", tag))
+	}
+	updated := mutate(http.MethodPatch, path, `{"name":"Version two"}`, `"design-1"`)
+	if updated.Code != http.StatusOK || updated.Header().Get("ETag") != `"design-2"` {
+		t.Fatalf("update: %d etag=%q body=%s", updated.Code, updated.Header().Get("ETag"), updated.Body)
+	}
+	stale := mutate(http.MethodPatch, path, `{"name":"Stale"}`, `"design-1"`)
+	if stale.Code != http.StatusConflict || apitest.ErrorCode(t, stale) != "stale_revision" || stale.Header().Get("ETag") != `"design-2"` {
+		t.Fatalf("stale: %d etag=%q body=%s", stale.Code, stale.Header().Get("ETag"), stale.Body)
+	}
+	rejected := mutate(http.MethodPatch, path, `{"width_mm":500}`, `"design-2"`)
+	if rejected.Code != http.StatusBadRequest {
+		t.Fatalf("rejected mutation: %d %s", rejected.Code, rejected.Body)
+	}
+	placed := mutate(http.MethodPost, path+"/items", itemBody(chair.ID, "", 1000, 1000), `"design-2"`)
+	if placed.Code != http.StatusCreated || placed.Header().Get("ETag") != `"design-3"` {
+		t.Fatalf("place after rollback: %d etag=%q body=%s", placed.Code, placed.Header().Get("ETag"), placed.Body)
+	}
+	var item itemResp
+	apitest.Decode(t, placed, &item)
+
+	foreign := e.Do(http.MethodPatch, path, `{"name":"Not mine"}`, apitest.WithCookie(other.Cookie), apitest.WithHeader("If-Match", `"design-3"`))
+	if foreign.Code != http.StatusNotFound {
+		t.Fatalf("foreign design: %d %s", foreign.Code, foreign.Body)
+	}
+	removed := mutate(http.MethodDelete, path+"/items/"+item.ID, "", `"design-3"`)
+	if removed.Code != http.StatusNoContent || removed.Header().Get("ETag") != `"design-4"` {
+		t.Fatalf("remove: %d etag=%q body=%s", removed.Code, removed.Header().Get("ETag"), removed.Body)
+	}
+	deleted := mutate(http.MethodDelete, path, "", `"design-4"`)
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", deleted.Code, deleted.Body)
+	}
 }
 
 func TestDesignIsolation(t *testing.T) {

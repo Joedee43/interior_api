@@ -2,8 +2,10 @@ package design
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +18,28 @@ import (
 type Handler struct {
 	svc            *Service
 	requireSession gin.HandlerFunc
+}
+
+func designETag(revision int64) string { return fmt.Sprintf(`"design-%d"`, revision) }
+
+func setDesignETag(c *gin.Context, revision int64) { c.Header("ETag", designETag(revision)) }
+
+func expectedRevision(c *gin.Context) (int64, bool) {
+	raw := c.GetHeader("If-Match")
+	if raw == "" {
+		httpapi.WriteError(c, http.StatusPreconditionRequired, "precondition_required", "If-Match design revision is required")
+		return 0, false
+	}
+	if !strings.HasPrefix(raw, `"design-`) || !strings.HasSuffix(raw, `"`) {
+		httpapi.WriteValidationError(c, map[string]string{"If-Match": `must be an ETag like "design-1"`})
+		return 0, false
+	}
+	n, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(raw, `"design-`), `"`), 10, 64)
+	if err != nil || n < 1 {
+		httpapi.WriteValidationError(c, map[string]string{"If-Match": `must be an ETag like "design-1"`})
+		return 0, false
+	}
+	return n, true
 }
 
 func NewHandler(svc *Service, requireSession gin.HandlerFunc) *Handler {
@@ -342,6 +366,7 @@ func (h *Handler) create(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
+	setDesignETag(c, d.Revision)
 	c.JSON(http.StatusCreated, toDetailDTO(d))
 }
 
@@ -380,6 +405,7 @@ func (h *Handler) get(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
+	setDesignETag(c, d.Revision)
 	c.JSON(http.StatusOK, toDetailDTO(d))
 }
 
@@ -399,11 +425,16 @@ func (h *Handler) update(c *gin.Context) {
 	if !httpapi.DecodeJSON(c, &req) {
 		return
 	}
-	d, err := h.svc.Update(c.Request.Context(), userID(c), c.Param("designID"), DesignUpdate(req))
+	expected, ok := expectedRevision(c)
+	if !ok {
+		return
+	}
+	d, err := h.svc.Update(c.Request.Context(), userID(c), c.Param("designID"), expected, DesignUpdate(req))
 	if err != nil {
 		writeError(c, err)
 		return
 	}
+	setDesignETag(c, d.Revision)
 	c.JSON(http.StatusOK, toDetailDTO(d))
 }
 
@@ -411,7 +442,11 @@ func (h *Handler) delete(c *gin.Context) {
 	if !ids(c, map[string]error{"designID": ErrNotFound}) {
 		return
 	}
-	if err := h.svc.Delete(c.Request.Context(), userID(c), c.Param("designID")); err != nil {
+	expected, ok := expectedRevision(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.Delete(c.Request.Context(), userID(c), c.Param("designID"), expected); err != nil {
 		writeError(c, err)
 		return
 	}
@@ -447,11 +482,16 @@ func (h *Handler) addItem(c *gin.Context) {
 		httpapi.WriteValidationError(c, p)
 		return
 	}
-	item, err := h.svc.AddItem(c.Request.Context(), userID(c), c.Param("designID"), ItemInput(req))
+	expected, ok := expectedRevision(c)
+	if !ok {
+		return
+	}
+	item, revision, err := h.svc.AddItem(c.Request.Context(), userID(c), c.Param("designID"), expected, ItemInput(req))
 	if err != nil {
 		writeError(c, err)
 		return
 	}
+	setDesignETag(c, revision)
 	c.JSON(http.StatusCreated, toItemDTO(item))
 }
 
@@ -475,11 +515,16 @@ func (h *Handler) updateItem(c *gin.Context) {
 		httpapi.WriteValidationError(c, map[string]string{"variant_id": "must be a variant id"})
 		return
 	}
-	item, err := h.svc.UpdateItem(c.Request.Context(), userID(c), c.Param("designID"), c.Param("itemID"), ItemUpdate(req))
+	expected, ok := expectedRevision(c)
+	if !ok {
+		return
+	}
+	item, revision, err := h.svc.UpdateItem(c.Request.Context(), userID(c), c.Param("designID"), c.Param("itemID"), expected, ItemUpdate(req))
 	if err != nil {
 		writeError(c, err)
 		return
 	}
+	setDesignETag(c, revision)
 	c.JSON(http.StatusOK, toItemDTO(item))
 }
 
@@ -487,10 +532,16 @@ func (h *Handler) deleteItem(c *gin.Context) {
 	if !ids(c, map[string]error{"designID": ErrNotFound, "itemID": ErrItemNotFound}) {
 		return
 	}
-	if err := h.svc.DeleteItem(c.Request.Context(), userID(c), c.Param("designID"), c.Param("itemID")); err != nil {
+	expected, ok := expectedRevision(c)
+	if !ok {
+		return
+	}
+	revision, err := h.svc.DeleteItem(c.Request.Context(), userID(c), c.Param("designID"), c.Param("itemID"), expected)
+	if err != nil {
 		writeError(c, err)
 		return
 	}
+	setDesignETag(c, revision)
 	c.Status(http.StatusNoContent)
 }
 
@@ -499,11 +550,15 @@ func (h *Handler) deleteItem(c *gin.Context) {
 func writeError(c *gin.Context, err error) {
 	var verr *auth.ValidationError
 	var placement *catalog.PlacementError
+	var stale *StaleRevisionError
 	switch {
 	case errors.As(err, &verr):
 		httpapi.WriteValidationError(c, verr.Fields)
 	case errors.As(err, &placement):
 		httpapi.WriteValidationError(c, map[string]string{placement.Field: placement.Reason})
+	case errors.As(err, &stale):
+		setDesignETag(c, stale.Current)
+		httpapi.WriteError(c, http.StatusConflict, "stale_revision", "the design changed in another editor")
 	case errors.Is(err, ErrNotFound):
 		httpapi.WriteError(c, http.StatusNotFound, httpapi.CodeNotFound, "design not found")
 	case errors.Is(err, ErrItemNotFound):

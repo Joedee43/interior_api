@@ -51,6 +51,12 @@ var (
 	ErrTooManyItems      = errors.New("too many items in this design")
 )
 
+// StaleRevisionError reports the current aggregate revision without exposing
+// another customer's design (ownership is resolved before it is constructed).
+type StaleRevisionError struct{ Current int64 }
+
+func (e *StaleRevisionError) Error() string { return "design revision is stale" }
+
 // Room is a rectangular room's inside dimensions.
 type Room struct {
 	WidthMM  int32 // along x (west -> east)
@@ -101,6 +107,7 @@ type Design struct {
 	Room       Room
 	Features   Features
 	ItemCount  int
+	Revision   int64
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }

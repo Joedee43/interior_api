@@ -52,6 +52,19 @@ Catalog and product pages fetch in Server Components. TanStack Query is for
 interactive account/design/editor/quote state and mutations, not public-page
 data fetching.
 
+### Design autosave revisions
+
+Design detail, creation and every successful design/item mutation return an
+aggregate `ETag` such as `"design-4"`. Send that value unchanged in `If-Match`
+for PATCH/DELETE design requests and POST/PATCH/DELETE item requests. Mutations
+are serialized per design and each success returns the next ETag.
+
+Missing `If-Match` is `428 precondition_required`; malformed values are
+`400 validation_failed`. A competing tab/device produces `409 stale_revision`
+and the response carries the current ETag. Refetch the design before rebasing
+local edits. Ownership is resolved first, so another customer's design remains
+a 404 regardless of the supplied revision.
+
 ## Money, dimensions and coordinates
 
 - Money is an integer `amount_minor`/`price_minor` plus an ISO currency. Never
@@ -102,9 +115,9 @@ missing, WebGL is unavailable or GLB loading fails.
    unavailable combinations cannot be placed. Apply the selected SKU's KHR
    variant in the preview.
 3. **Design:** authenticate → create from a room template/custom dimensions →
-   POST an item → keep drag/rotation local → PATCH once interaction commits →
-   show saving/saved/rollback/retry state → refetch estimates after structural
-   changes.
+   POST an item with `If-Match` → keep drag/rotation local → PATCH once an
+   interaction commits → advance the returned ETag → show saving/saved/retry
+   state → refetch estimates after structural changes.
 
 `DesignItem.product.sku` is the exact case-sensitive variant SKU, or `null`
 for a product without variants. Use it directly as the KHR variant name when

@@ -95,12 +95,12 @@ func updateTemplate(ctx context.Context, db postgres.DBTX, id string, set map[st
 // ---- designs ----------------------------------------------------------------
 
 const designColumns = `d.id, d.user_id, d.template_id, d.name, d.width_mm, d.depth_mm, d.height_mm, d.features,
-	(SELECT count(*) FROM design_items i WHERE i.design_id = d.id), d.created_at, d.updated_at`
+	(SELECT count(*) FROM design_items i WHERE i.design_id = d.id), d.revision, d.created_at, d.updated_at`
 
 func scanDesign(row pgx.Row) (Design, error) {
 	var d Design
 	err := row.Scan(&d.ID, &d.UserID, &d.TemplateID, &d.Name, &d.Room.WidthMM, &d.Room.DepthMM, &d.Room.HeightMM,
-		&d.Features, &d.ItemCount, &d.CreatedAt, &d.UpdatedAt)
+		&d.Features, &d.ItemCount, &d.Revision, &d.CreatedAt, &d.UpdatedAt)
 	d.Features.normalize()
 	return d, err
 }
@@ -175,22 +175,30 @@ func deleteDesign(ctx context.Context, db postgres.DBTX, userID, id string) erro
 	return nil
 }
 
-// lockDesign locks the user's design row for the rest of the transaction
-// and marks it as just edited. A single UPDATE does both: it takes the row
-// lock and bumps updated_at, so item changes move the design to the top
-// of "my designs". Returns the room for bounds checks.
-func lockDesign(ctx context.Context, tx pgx.Tx, userID, id string) (Room, error) {
+// lockDesign serializes all mutations for one design, verifies the aggregate
+// revision, and advances it. A later error rolls this update back with the
+// surrounding transaction, so failed mutations never consume a revision.
+func lockDesign(ctx context.Context, tx pgx.Tx, userID, id string, expected int64) (Room, int64, error) {
 	var r Room
-	err := tx.QueryRow(ctx, `
-		UPDATE designs SET updated_at = now() WHERE user_id = $1 AND id = $2
-		RETURNING width_mm, depth_mm, height_mm`, userID, id).Scan(&r.WidthMM, &r.DepthMM, &r.HeightMM)
+	var current int64
+	err := tx.QueryRow(ctx, `SELECT width_mm, depth_mm, height_mm, revision
+		FROM designs WHERE user_id = $1 AND id = $2 FOR UPDATE`, userID, id).
+		Scan(&r.WidthMM, &r.DepthMM, &r.HeightMM, &current)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Room{}, ErrNotFound
+		return Room{}, 0, ErrNotFound
 	}
 	if err != nil {
-		return Room{}, fmt.Errorf("lock design: %w", err)
+		return Room{}, 0, fmt.Errorf("lock design: %w", err)
 	}
-	return r, nil
+	if current != expected {
+		return Room{}, current, &StaleRevisionError{Current: current}
+	}
+	next := current + 1
+	if _, err := tx.Exec(ctx, `UPDATE designs SET revision = $3, updated_at = now()
+		WHERE user_id = $1 AND id = $2`, userID, id, next); err != nil {
+		return Room{}, 0, fmt.Errorf("advance design revision: %w", err)
+	}
+	return r, next, nil
 }
 
 // ---- items ------------------------------------------------------------------

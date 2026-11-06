@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -147,6 +148,7 @@ type ReqOpt func(*http.Request)
 
 func WithCookie(c *http.Cookie) ReqOpt { return func(r *http.Request) { r.AddCookie(c) } }
 func WithOrigin(o string) ReqOpt       { return func(r *http.Request) { r.Header.Set("Origin", o) } }
+func WithHeader(k, v string) ReqOpt    { return func(r *http.Request) { r.Header.Set(k, v) } }
 
 // Do sends a request through the router. A nil cookie in WithCookie is
 // not allowed; omit the option instead.
@@ -169,7 +171,20 @@ func (e *Env) Do(method, path, body string, opts ...ReqOpt) *httptest.ResponseRe
 // As is Do with a session cookie, the common case for authorized calls.
 func (e *Env) As(c *http.Cookie, method, path, body string) *httptest.ResponseRecorder {
 	e.T.Helper()
-	return e.Do(method, path, body, WithCookie(c))
+	opts := []ReqOpt{WithCookie(c)}
+	// Legacy integration helpers focus on domain behavior. Supply the current
+	// aggregate design revision automatically; concurrency tests call Do
+	// directly with an explicit If-Match value.
+	if method != http.MethodGet && strings.HasPrefix(path, "/v1/designs/") {
+		parts := strings.Split(strings.Trim(strings.SplitN(path, "?", 2)[0], "/"), "/")
+		if len(parts) >= 3 {
+			var revision int64
+			if err := e.Pool.QueryRow(context.Background(), `SELECT revision FROM designs WHERE id::text = $1`, parts[2]).Scan(&revision); err == nil {
+				opts = append(opts, WithHeader("If-Match", fmt.Sprintf(`"design-%d"`, revision)))
+			}
+		}
+	}
+	return e.Do(method, path, body, opts...)
 }
 
 func SessionCookie(t *testing.T, w *httptest.ResponseRecorder) *http.Cookie {
