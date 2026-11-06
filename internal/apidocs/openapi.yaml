@@ -355,6 +355,7 @@ components:
             company_slug: {type: string}
             company_name: {type: string}
             variant_id: {type: [string, 'null'], format: uuid}
+            sku: {type: [string, 'null'], description: Exact case-sensitive variant SKU; null for products without variants.}
             options: {type: object, additionalProperties: {type: string}}
             price: {$ref: '#/components/schemas/Price'}
             dimensions: {$ref: '#/components/schemas/Dimensions'}

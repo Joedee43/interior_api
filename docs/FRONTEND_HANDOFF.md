@@ -105,6 +105,10 @@ missing, WebGL is unavailable or GLB loading fails.
    POST an item → keep drag/rotation local → PATCH once interaction commits →
    show saving/saved/rollback/retry state → refetch estimates after structural
    changes.
+
+`DesignItem.product.sku` is the exact case-sensitive variant SKU, or `null`
+for a product without variants. Use it directly as the KHR variant name when
+rendering placed furniture; do not infer a SKU from option display names.
 4. **Quote:** submit a design → show requests created per seller and skipped
    unavailable items → display revisions/expiry → send the displayed revision
    when accepting and refetch on `stale_revision`.

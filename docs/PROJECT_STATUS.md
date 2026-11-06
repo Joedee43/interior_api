@@ -1,7 +1,7 @@
 # Project status and handoff — interior_api
 
-**Last updated:** 2026-11-03 · **Branch:** `phase-10` at `ee1acf4` + this document ·
-**Phases done:** 0–10 of 10 (backend) · **Next:** frontend Phase 1 decisions in `interior_web`
+**Last updated:** 2026-11-06 · **Branch:** `phase-6` (frontend Phase 6 contract support) ·
+**Phases done:** 0–10 of 10 (backend) · **Next:** frontend Phase 6 in `interior_web`
 
 This is the working memory of the project, written for the next Claude Code session (on a
 new device) and for the developer. Read it fully before changing anything; then confirm the
@@ -202,7 +202,7 @@ compile-time check `var _ Iface = (*Impl)(nil)`.
 
 ---
 
-## 7. Phase 10 — complete on `phase-10`, awaiting merge
+## 7. Phase 10 — complete on `main`
 
 Phase 10 prepared the API for the Next.js frontend. The developer accepted these decisions on
 2026-10-30 and approved implementation on 2026-11-03:
@@ -239,6 +239,11 @@ also builds independently.
 After this backend phase is merged, frontend work begins in `interior_web`. Its ten
 delivery steps are separate phases following decisions → plan → approval → branch → verify →
 report → developer says **"merge"**.
+
+Frontend Phase 6 adds one additive design response field: `DesignItem.product.sku`
+is the exact variant SKU or `null` for products without variants. The value was
+already resolved by the catalog placement service; no migration or persistence
+change was required.
 
 ---
 

@@ -81,6 +81,7 @@ type itemResp struct {
 		Name        string            `json:"name"`
 		CompanySlug string            `json:"company_slug"`
 		VariantID   *string           `json:"variant_id"`
+		SKU         *string           `json:"sku"`
 		Options     map[string]string `json:"options"`
 		Price       struct {
 			AmountMinor int64  `json:"amount_minor"`
@@ -275,9 +276,12 @@ func TestPlaceItems(t *testing.T) {
 	if it.RotationDeg != 270 || it.Position.X != 1500 || !it.Available || it.Product.Price.AmountMinor != 12000 {
 		t.Errorf("placed chair: %+v", it)
 	}
+	if it.Product.VariantID != nil || it.Product.SKU != nil {
+		t.Errorf("plain product variant identity: variant=%v sku=%v, want nulls", it.Product.VariantID, it.Product.SKU)
+	}
 	place(t, e, u, d.ID, itemBody(chair.ID, "", 2500, 2000))
 	lin := place(t, e, u, d.ID, itemBody(sofa.ID, sofa.Variants["LIN"], 4000, 5000))
-	if lin.Product.Options["Fabric"] != "Linen" || lin.Product.Price.AmountMinor != 50000 {
+	if lin.Product.Options["Fabric"] != "Linen" || lin.Product.Price.AmountMinor != 50000 || lin.Product.SKU == nil || *lin.Product.SKU != strings.ToUpper(sofa.Slug)+"-LIN" {
 		t.Errorf("placed sofa: %+v", lin)
 	}
 

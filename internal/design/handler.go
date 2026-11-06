@@ -97,6 +97,7 @@ type productRefDTO struct {
 	CompanySlug     string            `json:"company_slug"`
 	CompanyName     string            `json:"company_name"`
 	VariantID       *string           `json:"variant_id"`
+	SKU             *string           `json:"sku"`
 	Options         map[string]string `json:"options"`
 	Price           priceDTO          `json:"price"`
 	Dimensions      roomDTO           `json:"dimensions"`
@@ -138,7 +139,7 @@ func toItemDTO(p PlacedItem) itemDTO {
 		Product: productRefDTO{
 			ID: p.ProductID, Slug: info.ProductSlug, Name: info.ProductName,
 			CompanySlug: info.CompanySlug, CompanyName: info.CompanyName,
-			VariantID: p.VariantID, Options: opts,
+			VariantID: p.VariantID, SKU: info.SKU, Options: opts,
 			Price:           priceDTO{AmountMinor: info.PriceMinor, Currency: info.Currency},
 			Dimensions:      roomDTO{info.WidthMM, info.DepthMM, info.HeightMM},
 			PrimaryImageURL: info.PrimaryImageURL, ModelURL: info.ModelURL,
