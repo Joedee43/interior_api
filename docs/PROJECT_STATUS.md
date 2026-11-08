@@ -1,8 +1,8 @@
 # Project status and handoff — interior_api
 
-**Last updated:** 2026-11-08 · **Branch:** `main` (at `51fff90` before the 2026-11-08 fixes) ·
-**Phases done:** 0–10 of 10 (backend) · **Frontend:** `interior_web` Phases 1–8 done; Phase 9
-(customer quote management) is next
+**Last updated:** 2026-11-08 · **Branch:** `main` · **Phases done:** 0–10 of 10 (backend), plus
+production-deployment support · **Frontend:** `interior_web` Phases 1–9 committed; Phase 10
+(accessibility, performance, hardening) built and awaiting merge
 
 This is the working memory of the project, written for the next Claude Code session (on a
 new device) and for the developer. Read it fully before changing anything; then confirm the
@@ -138,8 +138,9 @@ internal/apidocs/   openapi.yaml (embedded, GET /openapi.yaml) + drift test
 internal/apitest/   full-stack test harness (only imported by _test.go files)
 migrations/         00001–00015 SQL (goose), see migrations/README.md for conventions
 requests/           .http files (VS Code REST Client) for manual testing of every area
-docs/               OPERATIONS.md, SECURITY_REVIEW.md, FRONTEND_HANDOFF.md, this file
-scripts/            backup.ps1
+docs/               OPERATIONS.md, SECURITY_REVIEW.md, FRONTEND_HANDOFF.md, DEPLOYMENT.md, this file
+scripts/            backup.ps1 (Windows development machine)
+deploy/             production kit: Caddyfile, systemd units, backup.sh + daily timer
 .github/workflows/  ci.yml (gofmt, vet, staticcheck, build, tests with -race, migrations)
 ```
 
@@ -271,6 +272,20 @@ includes `is_primary`, `materials` and `variants`. Before this, a real quote sub
 an error after succeeding, products with 2+ images failed to load, and GLBs with no named
 materials/variants broke the product page. Unit tests in `quote/handler_test.go` and
 `catalog/media_handler_test.go` pin the JSON shapes without a database.
+
+Production deployment (frontend Phase 10, 2026-11-08): the developer chose **one Linux server**
+(Caddy → Next.js → Go → PostgreSQL, no Docker).
+- `SERVER_HOST` (default empty = every interface) lets production listen on `127.0.0.1` only.
+  `Addr()` uses `net.JoinHostPort`, which also brackets IPv6 hosts.
+- With `APP_ENV=production`, config rejects any non-`https://` entry in `ALLOWED_ORIGINS`: the
+  session cookie is Secure, so such an origin could never stay signed in. A mutation check
+  confirmed the tests catch its removal.
+- `deploy/` holds the Caddyfile (HTTPS, HSTS, `X-Real-IP` overwrite), hardened systemd units for
+  API and web, and `backup.sh` with a daily timer.
+- `docs/DEPLOYMENT.md` walks through the whole setup and ends with a post-deploy checklist. Nothing
+  has been deployed yet.
+- `.env.example` needs the new `SERVER_HOST` line added by the developer: the standing rules
+  keep Claude out of `.env*` files.
 
 ---
 

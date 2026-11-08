@@ -68,15 +68,28 @@ func TestFromLookup_AllowedOrigins(t *testing.T) {
 func TestFromLookup_Overrides(t *testing.T) {
 	cfg, err := FromLookup(lookupFrom(map[string]string{
 		"APP_ENV":               "production",
+		"SERVER_HOST":           "127.0.0.1",
 		"SERVER_PORT":           "9000",
 		"DATABASE_URL":          "postgres://localhost/db",
 		"HTTP_SHUTDOWN_TIMEOUT": "3s",
+		"ALLOWED_ORIGINS":       "https://app.example.com",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if cfg.Env != EnvProduction || cfg.Port != "9000" || cfg.HTTP.ShutdownTimeout != 3*time.Second {
 		t.Errorf("overrides not applied: %+v", cfg)
+	}
+	if got := cfg.Addr(); got != "127.0.0.1:9000" {
+		t.Errorf("Addr() = %q, want 127.0.0.1:9000", got)
+	}
+}
+
+func TestAddr(t *testing.T) {
+	for host, want := range map[string]string{"": ":5050", "127.0.0.1": "127.0.0.1:5050", "::1": "[::1]:5050", "localhost": "localhost:5050"} {
+		if got := (Config{Host: host, Port: "5050"}).Addr(); got != want {
+			t.Errorf("Addr() with host %q = %q, want %q", host, got, want)
+		}
 	}
 }
 
@@ -125,6 +138,21 @@ func TestFromLookup_Invalid(t *testing.T) {
 			name:    "bad cors boolean",
 			env:     map[string]string{"DATABASE_URL": "x", "ENABLE_CORS": "sometimes"},
 			wantErr: []string{"ENABLE_CORS"},
+		},
+		{
+			name:    "bad server host",
+			env:     map[string]string{"DATABASE_URL": "x", "SERVER_HOST": "api.internal"},
+			wantErr: []string{"SERVER_HOST"},
+		},
+		{
+			name:    "http origin in production",
+			env:     map[string]string{"DATABASE_URL": "x", "APP_ENV": "production", "ALLOWED_ORIGINS": "https://app.example.com,http://app.example.com"},
+			wantErr: []string{`"http://app.example.com" must use https://`},
+		},
+		{
+			name:    "default localhost origin in production",
+			env:     map[string]string{"DATABASE_URL": "x", "APP_ENV": "production"},
+			wantErr: []string{"ALLOWED_ORIGINS", "APP_ENV=production"},
 		},
 		{
 			name:    "reports every problem at once",

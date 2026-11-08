@@ -4,6 +4,7 @@
 
 # Go build output
 bin/
+/dist/
 tmp/
 *.exe
 *.test

@@ -1,0 +1,14 @@
+# /etc/systemd/system/interior-backup.service: run by interior-backup.timer.
+# Run it once by hand with: sudo systemctl start interior-backup
+[Unit]
+Description=Interior database and media backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=interior
+Group=interior
+EnvironmentFile=/etc/interior/api.env
+Environment=BACKUP_DIR=/var/backups/interior
+Environment=KEEP_DAYS=14
+ExecStart=/opt/interior/api/deploy/backup.sh

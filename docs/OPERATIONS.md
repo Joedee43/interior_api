@@ -2,6 +2,8 @@
 
 How to run, back up, restore and maintain the API. Commands are for
 Windows PowerShell with PostgreSQL 18 under `D:\postgres-18`; adjust paths.
+For the production Linux server (Caddy, systemd, `deploy/backup.sh`), follow
+[`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 ## Production checklist
 
@@ -9,7 +11,8 @@ Windows PowerShell with PostgreSQL 18 under `D:\postgres-18`; adjust paths.
 |---|---|
 | `APP_ENV` | `production` — JSON logs, Gin release mode, `Secure` + `__Host-` session cookie, HSTS |
 | HTTPS | Required in production (cookies are `Secure`). Terminate TLS at a reverse proxy or load balancer. |
-| `ALLOWED_ORIGINS` | The exact frontend origin(s), e.g. `https://app.example.com` |
+| `SERVER_HOST` | `127.0.0.1` so only Next.js on the same server reaches the API; empty (the default) listens on every interface |
+| `ALLOWED_ORIGINS` | The exact frontend origin(s), e.g. `https://app.example.com`. Production rejects any `http://` origin at startup. |
 | `TRUSTED_PROXIES` | Only the Next.js server/private proxy IPs or CIDRs; forwarding headers from other peers are ignored |
 | `ENABLE_CORS` | `false` for the normal same-origin Next.js rewrite; enable only for an intentional separate-origin deployment |
 | `DATABASE_URL` | A dedicated database user that owns the schema; never the `postgres` superuser in production |

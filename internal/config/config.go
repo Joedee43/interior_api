@@ -27,7 +27,11 @@ const (
 )
 
 type Config struct {
-	Env         Env
+	Env Env
+	// Host is the interface to listen on. Empty means every interface (the
+	// development default); production sets 127.0.0.1 so only Next.js on the
+	// same server can reach the API.
+	Host        string
 	Port        string
 	DatabaseURL string
 	HTTP        HTTPConfig
@@ -114,6 +118,7 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 
 	cfg := Config{
 		Env:         Env(get("APP_ENV", string(EnvDevelopment))),
+		Host:        get("SERVER_HOST", ""),
 		Port:        get("SERVER_PORT", "5050"),
 		DatabaseURL: get("DATABASE_URL", ""),
 		HTTP: HTTPConfig{
@@ -164,6 +169,18 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 	if port, err := strconv.Atoi(cfg.Port); err != nil || port < 1 || port > 65535 {
 		errs = append(errs, fmt.Errorf("SERVER_PORT: must be a number between 1 and 65535, got %q", cfg.Port))
 	}
+	if cfg.Host != "" && net.ParseIP(cfg.Host) == nil && cfg.Host != "localhost" {
+		errs = append(errs, fmt.Errorf("SERVER_HOST: must be an IP address like 127.0.0.1 or localhost, got %q", cfg.Host))
+	}
+	// In production the session cookie is Secure (HTTPS only), so a browser
+	// on an http:// origin could never stay signed in. Catch that at startup.
+	if cfg.Env == EnvProduction {
+		for _, origin := range cfg.AllowedOrigins {
+			if !strings.HasPrefix(origin, "https://") {
+				errs = append(errs, fmt.Errorf("ALLOWED_ORIGINS: %q must use https:// when APP_ENV=production", origin))
+			}
+		}
+	}
 	if cfg.DatabaseURL == "" {
 		errs = append(errs, errors.New("DATABASE_URL: required"))
 	}
@@ -174,4 +191,6 @@ func FromLookup(lookup func(string) (string, bool)) (Config, error) {
 	return cfg, nil
 }
 
-func (c Config) Addr() string { return ":" + c.Port }
+// Addr is the listen address. net.JoinHostPort adds the brackets an IPv6
+// host needs ("[::1]:5050"); an empty host gives ":5050", every interface.
+func (c Config) Addr() string { return net.JoinHostPort(c.Host, c.Port) }

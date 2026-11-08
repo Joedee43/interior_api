@@ -292,6 +292,9 @@ customer accepts or rejects. Each request concerns **one company**.
   (start here on a new machine or in a new session).
 - `docs/OPERATIONS.md` — production checklist, backups (`scripts/backup.ps1`),
   restore, session cleanup, admin commands, CI.
+- `docs/DEPLOYMENT.md` and `deploy/` — running API and frontend on one Linux
+  server: Caddy, systemd units, daily backups, update/rollback, post-deploy
+  checklist.
 - `docs/SECURITY_REVIEW.md` — Phase 9 review: fixes, verified controls,
   accepted risks.
 - Accounts: `POST /v1/auth/logout-all`, `POST /v1/auth/password` (revokes

@@ -1,0 +1,29 @@
+# /etc/systemd/system/interior-web.service: the Next.js frontend
+# (interior_web). See docs/DEPLOYMENT.md.
+[Unit]
+Description=Interior web (Next.js)
+After=network-online.target interior-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=interior
+Group=interior
+WorkingDirectory=/opt/interior/web
+# API_INTERNAL_URL=http://127.0.0.1:5050, NEXT_PUBLIC_APP_URL=https://<domain>,
+# TRUSTED_CLIENT_IP_HEADER=x-real-ip. The build must use the same values.
+EnvironmentFile=/etc/interior/web.env
+Environment=NODE_ENV=production
+ExecStart=/opt/interior/web/node_modules/.bin/next start -H 127.0.0.1 -p 3000
+Restart=on-failure
+RestartSec=5
+
+# Hardening: only Next's own cache folder is writable.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/interior/web/.next
+
+[Install]
+WantedBy=multi-user.target

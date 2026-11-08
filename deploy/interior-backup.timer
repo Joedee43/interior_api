@@ -1,0 +1,12 @@
+# /etc/systemd/system/interior-backup.timer: daily backup at about 03:30.
+[Unit]
+Description=Daily interior backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=15m
+# Runs at the next boot if the server was off at 03:30.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,31 @@
+# /etc/systemd/system/interior-api.service: the Go API. See docs/DEPLOYMENT.md.
+[Unit]
+Description=Interior API (Go)
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=interior
+Group=interior
+WorkingDirectory=/opt/interior/api
+# APP_ENV=production, SERVER_HOST=127.0.0.1, DATABASE_URL, ALLOWED_ORIGINS,
+# TRUSTED_PROXIES=127.0.0.1, STORAGE_DIR=/var/lib/interior/storage
+EnvironmentFile=/etc/interior/api.env
+ExecStart=/opt/interior/api/bin/api
+Restart=on-failure
+RestartSec=5
+# SIGTERM starts a graceful shutdown (HTTP_SHUTDOWN_TIMEOUT, 10s by default).
+TimeoutStopSec=30
+
+# Hardening: the filesystem is read-only except the media folder, where
+# uploads (and their temporary files) are written.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/interior/storage
+
+[Install]
+WantedBy=multi-user.target

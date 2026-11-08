@@ -1,0 +1,22 @@
+# /etc/caddy/Caddyfile: replace app.example.com with your domain.
+# Caddy gets and renews the HTTPS certificate itself and redirects http:// to
+# https://. See docs/DEPLOYMENT.md.
+app.example.com {
+	encode zstd gzip
+
+	header {
+		# Browsers remember to use HTTPS for a year. Add "preload" only once you
+		# are sure every subdomain will always have HTTPS.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# Everything goes to Next.js, which serves the pages and forwards /v1/* to
+	# the Go API on 127.0.0.1:5050. Go is never reachable from outside.
+	reverse_proxy 127.0.0.1:3000 {
+		# Overwrite (never append) so a browser cannot spoof its IP. Next.js
+		# reads it (TRUSTED_CLIENT_IP_HEADER=x-real-ip) and passes it to Go,
+		# which trusts it only from TRUSTED_PROXIES=127.0.0.1.
+		header_up X-Real-IP {remote_host}
+	}
+}
