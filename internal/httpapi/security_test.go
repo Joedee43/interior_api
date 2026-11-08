@@ -67,6 +67,18 @@ func TestCORS(t *testing.T) {
 		}
 	})
 
+	t.Run("preflight allows the design revision header", func(t *testing.T) {
+		h := http.Header{
+			"Origin":                         {"https://app.example.com"},
+			"Access-Control-Request-Method":  {"PATCH"},
+			"Access-Control-Request-Headers": {"content-type, if-match"},
+		}
+		w := do(r, http.MethodOptions, "/x", h)
+		if !strings.Contains(w.Header().Get("Access-Control-Allow-Headers"), "If-Match") {
+			t.Errorf("If-Match not allowed: headers=%v", w.Header())
+		}
+	})
+
 	t.Run("foreign preflight", func(t *testing.T) {
 		w := do(r, http.MethodOptions, "/x", http.Header{"Origin": {"https://evil.example"}})
 		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), CodeForbiddenOrigin) || w.Header().Get("Access-Control-Allow-Origin") != "" {

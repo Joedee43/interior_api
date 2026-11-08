@@ -1,7 +1,8 @@
 # Project status and handoff — interior_api
 
-**Last updated:** 2026-11-06 · **Branch:** `phase-7` (frontend Phase 7 contract support) ·
-**Phases done:** 0–10 of 10 (backend) · **Next:** interactive editor in `interior_web`
+**Last updated:** 2026-11-08 · **Branch:** `main` (at `51fff90` before the 2026-11-08 fixes) ·
+**Phases done:** 0–10 of 10 (backend) · **Frontend:** `interior_web` Phases 1–8 done; Phase 9
+(customer quote management) is next
 
 This is the working memory of the project, written for the next Claude Code session (on a
 new device) and for the developer. Read it fully before changing anything; then confirm the
@@ -16,8 +17,9 @@ A **web-first, multi-company furniture commerce platform**: companies publish fu
 room, and request quotations. The differentiator is **seeing fit and appearance before buying**.
 
 - **This repository is the backend only:** Go + Gin + PostgreSQL (pgx/pgxpool).
-- **Frontend (accepted, not started):** Next.js App Router + TypeScript + React Three Fiber/Drei
-  + Three.js, in the separate sibling repository/folder `interior_web`.
+- **Frontend (in progress, Phases 1–8 of 10 done):** Next.js App Router + TypeScript + React
+  Three Fiber/Drei + Three.js, in the separate sibling repository/folder `interior_web` (its own
+  `docs/PROJECT_STATUS.md` tracks frontend phases).
 - **Mobile:** later; no framework chosen.
 - **Docker/WSL: not used** (WSL failed on the original machine). PostgreSQL runs natively.
 
@@ -55,8 +57,8 @@ with Express/JavaScript where useful. The code itself is commented in that spiri
 
 ## 3. Current state
 
-Phases 0–9 are merged into `main`; Phase 10 is implemented and verified on `phase-10`, waiting
-for the developer's explicit **"merge"**. Highlights:
+Phases 0–10 are merged into `main` and pushed, together with two additive changes that frontend
+Phases 6–7 needed (variant SKU in designs, design revisions; see §7). Highlights:
 
 | Phase | What exists |
 |---|---|
@@ -78,32 +80,40 @@ for the developer's explicit **"merge"**. Highlights:
 
 ## 4. Setting up the new device
 
-1. **Go 1.26+.** `go.mod` says `go 1.26.0`; an older Go downloads 1.26 automatically
-   (`GOTOOLCHAIN=auto`).
-2. **PostgreSQL** (18 was used; 16+ should work). Create two databases:
-   ```sql
-   CREATE DATABASE interior_db;
-   CREATE DATABASE interior_test;
+The project now lives on a Mac (macOS, zsh). The original Windows machine is noted where it differs.
+
+1. **Go 1.26+.** `go.mod` says `go 1.26.0`; a newer Go works, an older one downloads 1.26
+   automatically (`GOTOOLCHAIN=auto`).
+2. **PostgreSQL 16+.** The Mac uses Homebrew `postgresql@17` on the default port **5432**
+   (`brew services start postgresql@17`; local connections as your macOS user need no password).
+   Windows used PostgreSQL 18 on port **5433**. Create both databases:
+   ```bash
+   createdb interior_db
+   createdb interior_test
    ```
-3. **`.env`** (never committed): `copy .env.example .env`, then set your password, port and both
-   URLs. The old machine used port **5433**; adjust to your installation.
-4. **Migrate and test:**
-   ```powershell
+3. **`.env`** (never committed): `cp .env.example .env`, then set `DATABASE_URL` and
+   `TEST_DATABASE_URL`, e.g. `postgres://<macos-user>@localhost:5432/interior_db?sslmode=disable`
+   and the same URL ending in `/interior_test?sslmode=disable`. Keep both lines uncommented.
+4. **Migrate and test** (from `interior_api/`):
+   ```bash
    go run ./cmd/migrate up          # interior_db
    go run ./cmd/migrate -test up    # interior_test (tests also migrate it themselves)
-   gofmt -l . ; go vet ./... ; go test ./...
+   go run ./cmd/migrate status      # 00001–00015 must all be applied
+   gofmt -l . ; go vet ./...
+   set -a; . ./.env; set +a; go test ./...
    go run ./cmd/api                 # http://localhost:5050/health
    ```
-   PowerShell does not load `.env` into the shell, but the code does: `cmd/api`, `cmd/migrate`
-   and `cmd/admin` read `.env` themselves. **Integration tests read `TEST_DATABASE_URL` from the
-   real environment only** (they skip without it): set it first, e.g.
-   `$env:TEST_DATABASE_URL = "postgres://..."` (PowerShell) or `set -a; . ./.env; set +a` (bash).
-5. **Development data does not travel with git.** The old machine had demo accounts and media
-   (listed in §10). To bring them along, on the old machine run `.\scripts\backup.ps1` and copy
-   the two files; restore with the steps in `docs/OPERATIONS.md`. Otherwise just start empty.
+   `cmd/api`, `cmd/migrate`, `cmd/admin` and `cmd/seed` read `.env` themselves. **Integration
+   tests read `TEST_DATABASE_URL` from the real environment only** (they skip without it), hence
+   the `set -a` line (PowerShell: `$env:TEST_DATABASE_URL = "postgres://..."`).
+5. **Development data does not travel with git.** `go run ./cmd/seed` recreates the demo
+   accounts, catalog, GLB and design listed in §10. Restoring a backup is optional
+   (`docs/OPERATIONS.md`).
 6. Optional: `go run ./cmd/admin grant-platform-admin -email you@example.com`.
 
-Paths in docs and scripts assume `D:\postgres-18\bin` — adjust (`scripts/backup.ps1 -PgBin`).
+`scripts/backup.ps1` and the restore commands in `docs/OPERATIONS.md` are Windows-only (they
+assume `D:\postgres-18\bin` and port 5433). On the Mac, use Homebrew's `pg_dump`/`pg_restore`
+directly with the same flags.
 
 ---
 
@@ -126,7 +136,7 @@ internal/design/    room templates, designs, placed items (uses catalog via inte
 internal/quote/     quotation workflow (uses catalog, design, auth via interfaces)
 internal/apidocs/   openapi.yaml (embedded, GET /openapi.yaml) + drift test
 internal/apitest/   full-stack test harness (only imported by _test.go files)
-migrations/         00001–00014 SQL (goose), see migrations/README.md for conventions
+migrations/         00001–00015 SQL (goose), see migrations/README.md for conventions
 requests/           .http files (VS Code REST Client) for manual testing of every area
 docs/               OPERATIONS.md, SECURITY_REVIEW.md, FRONTEND_HANDOFF.md, this file
 scripts/            backup.ps1
@@ -236,9 +246,9 @@ OpenAPI TypeScript generation, production seed refusal, repeatable seed integrat
 proxy mutation test, live seeded catalog/GLB requests and clean shutdown. Every Phase 10 commit
 also builds independently.
 
-After this backend phase is merged, frontend work begins in `interior_web`. Its ten
-delivery steps are separate phases following decisions → plan → approval → branch → verify →
-report → developer says **"merge"**.
+Phase 10 is merged; frontend work continues in `interior_web`. Its ten delivery steps are
+separate phases following decisions → plan → approval → branch → verify → report → developer
+says **"merge"**.
 
 Frontend Phase 6 adds one additive design response field: `DesignItem.product.sku`
 is the exact variant SKU or `null` for products without variants. The value was
@@ -249,7 +259,9 @@ Frontend Phase 7 adds aggregate design revisions for conflict-safe autosave.
 Migration 00015 gives each design a monotonic revision. Detail/create/mutation
 responses expose it as an ETag, and every design/item mutation requires the
 latest value through `If-Match`. Competing editors receive `409 stale_revision`;
-failed mutations roll back their revision increment with the transaction.
+failed mutations roll back their revision increment with the transaction. Deleting a design
+returns `204` without an ETag (there is no next revision). The optional CORS preflight allows
+`If-Match` (fixed 2026-11-08; it was missing).
 
 ---
 
@@ -279,10 +291,14 @@ seller-side model-size check yet; no orders/payment.
   `CTRL_BREAK_EVENT` (Go delivers it as `os.Interrupt`).
 - The repo `go.mod` was bumped to Go 1.26 by `go get` (goose) in Phase 1 without being noticed
   at first; check `go.mod` after every `go get`.
+- `interior_web`'s mock API (`tests/mock-api.mjs`) must answer exactly like Go. It sent an ETag on
+  design DELETE, which Go does not, and so hid a frontend bug until a review against this code.
+- A new request header used by the frontend (like `If-Match`) must also be added to the optional
+  CORS preflight's `Access-Control-Allow-Headers`.
 
 ---
 
-## 10. Development data on the old machine (not in git)
+## 10. Development data (not in git)
 
 Created repeatably by `go run ./cmd/seed` (the command replaces only these documented identities):
 

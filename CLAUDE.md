@@ -1,8 +1,9 @@
 # interior_api — instructions for Claude Code
 
 **Read `docs/PROJECT_STATUS.md` first, completely.** It is the project's working memory:
-what is built (Phases 0–9), every agreed decision, how we work, setup on a new device, and the
-Phase 10 decisions still awaiting the developer. Then confirm against `git log` and the code.
+what is built (backend Phases 0–10, all merged), every agreed decision, how we work, setup on a
+new device (now a Mac), and the contract the Next.js frontend in `../interior_web` depends on.
+Then confirm against `git log` and the code.
 
 Rules that must never be missed:
 

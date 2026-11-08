@@ -57,7 +57,9 @@ data fetching.
 Design detail, creation and every successful design/item mutation return an
 aggregate `ETag` such as `"design-4"`. Send that value unchanged in `If-Match`
 for PATCH/DELETE design requests and POST/PATCH/DELETE item requests. Mutations
-are serialized per design and each success returns the next ETag.
+are serialized per design and each success returns the next ETag, except
+deleting the design itself: that answers `204` with no ETag, because no next
+revision exists.
 
 Missing `If-Match` is `428 precondition_required`; malformed values are
 `400 validation_failed`. A competing tab/device produces `409 stale_revision`

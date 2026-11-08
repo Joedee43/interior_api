@@ -63,7 +63,9 @@ func cors(allowed []string) gin.HandlerFunc {
 			h.Add("Vary", "Access-Control-Request-Method")
 			h.Add("Vary", "Access-Control-Request-Headers")
 			h.Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
-			h.Set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID")
+			// If-Match carries the design revision on every design edit; it is
+			// not a CORS-safelisted header, so browsers need it allowed here.
+			h.Set("Access-Control-Allow-Headers", "Content-Type, If-Match, X-Request-ID")
 			h.Set("Access-Control-Max-Age", "600")
 			c.Status(http.StatusNoContent)
 			c.Abort()
