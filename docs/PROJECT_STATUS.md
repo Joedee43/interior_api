@@ -263,6 +263,15 @@ failed mutations roll back their revision increment with the transaction. Deleti
 returns `204` without an ETag (there is no next revision). The optional CORS preflight allows
 `If-Match` (fixed 2026-11-08; it was missing).
 
+Contract fixes for frontend Phase 9 (2026-11-08): `omitempty` had removed fields the frontend
+requires, so real responses broke where the mock API did not. Quote **detail** responses
+(single request, submissions, actions) now always include `lines` and `charges` arrays via
+`requestDetailDTO`, which embeds the list-row `requestDTO`. Lists still omit both. Media always
+includes `is_primary`, `materials` and `variants`. Before this, a real quote submission showed
+an error after succeeding, products with 2+ images failed to load, and GLBs with no named
+materials/variants broke the product page. Unit tests in `quote/handler_test.go` and
+`catalog/media_handler_test.go` pin the JSON shapes without a database.
+
 ---
 
 ## 8. Known gaps and accepted risks
@@ -295,6 +304,9 @@ seller-side model-size check yet; no orders/payment.
   design DELETE, which Go does not, and so hid a frontend bug until a review against this code.
 - A new request header used by the frontend (like `If-Match`) must also be added to the optional
   CORS preflight's `Access-Control-Allow-Headers`.
+- Never put `omitempty` on a response field the frontend requires: it drops `false`, `0`, `""`
+  and empty slices, not just missing values. Also build response slices with `make` (or `[]T{}`),
+  because a nil slice encodes as `null`, not `[]`.
 
 ---
 

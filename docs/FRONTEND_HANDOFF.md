@@ -67,6 +67,17 @@ and the response carries the current ETag. Refetch the design before rebasing
 local edits. Ownership is resolved first, so another customer's design remains
 a 404 regardless of the supplied revision.
 
+### Field presence
+
+- Quote **detail** responses (one request, submissions, accept/reject/cancel and
+  the company actions) always include `lines` and `charges` arrays, which are
+  empty `[]` before a quote is sent. Quote **list** rows never include them; use
+  `line_count` and the totals.
+- Media always includes `is_primary`, `materials` and `variants` (arrays may be
+  empty). `width`, `height` and `alt_text` may be absent.
+- The Playwright mock API must mirror these rules exactly. Fields the mock
+  invents or always sends hide real contract bugs.
+
 ## Money, dimensions and coordinates
 
 - Money is an integer `amount_minor`/`price_minor` plus an ISO currency. Never

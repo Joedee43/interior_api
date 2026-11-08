@@ -39,18 +39,20 @@ func (h *Handler) mountMedia(p *gin.RouterGroup, companyGroup *gin.RouterGroup, 
 func publicMediaURL(id string) string { return "/v1/media/" + id }
 
 type mediaDTO struct {
-	ID          string   `json:"id"`
-	Kind        string   `json:"kind"`
-	URL         string   `json:"url"`
-	ContentType string   `json:"content_type"`
-	SizeBytes   int64    `json:"size_bytes"`
-	Width       *int32   `json:"width,omitempty"`
-	Height      *int32   `json:"height,omitempty"`
-	AltText     string   `json:"alt_text,omitempty"`
-	Position    int      `json:"position"`
-	IsPrimary   bool     `json:"is_primary,omitempty"`
-	Materials   []string `json:"materials,omitempty"`
-	Variants    []string `json:"variants,omitempty"`
+	ID          string `json:"id"`
+	Kind        string `json:"kind"`
+	URL         string `json:"url"`
+	ContentType string `json:"content_type"`
+	SizeBytes   int64  `json:"size_bytes"`
+	Width       *int32 `json:"width,omitempty"`
+	Height      *int32 `json:"height,omitempty"`
+	AltText     string `json:"alt_text,omitempty"`
+	Position    int    `json:"position"`
+	// The next three are always present: omitempty would drop is_primary
+	// when false and the arrays when empty, and the frontend requires them.
+	IsPrimary bool     `json:"is_primary"`
+	Materials []string `json:"materials"`
+	Variants  []string `json:"variants"`
 }
 
 // companyMediaDTO adds member-only fields: the private download URL (works
@@ -67,8 +69,16 @@ func toMediaDTO(m Media) mediaDTO {
 	return mediaDTO{
 		ID: m.ID, Kind: m.Kind, URL: publicMediaURL(m.ID), ContentType: m.ContentType, SizeBytes: m.SizeBytes,
 		Width: m.Width, Height: m.Height, AltText: m.AltText, Position: m.Position, IsPrimary: m.IsPrimary,
-		Materials: m.Materials, Variants: m.Variants,
+		Materials: nonNil(m.Materials), Variants: nonNil(m.Variants),
 	}
+}
+
+// nonNil turns a nil slice into an empty one, so JSON gets [] instead of null.
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 func toCompanyMediaDTO(m Media) companyMediaDTO {

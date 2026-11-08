@@ -95,21 +95,32 @@ type requestDTO struct {
 		DeliveryAddress string `json:"delivery_address"`
 		Note            string `json:"note"`
 	} `json:"customer"`
-	Currency    string      `json:"currency"`
-	ListTotal   int64       `json:"list_total_minor"`
-	QuotedTotal *int64      `json:"quoted_total_minor"`
-	ValidUntil  *string     `json:"valid_until"` // "YYYY-MM-DD"
-	Expired     bool        `json:"expired"`
-	CompanyNote string      `json:"company_note"`
-	LineCount   int         `json:"line_count"`
-	Lines       []lineDTO   `json:"lines,omitempty"` // detail only
-	Charges     []chargeDTO `json:"charges,omitempty"`
-	SubmittedAt time.Time   `json:"submitted_at"`
-	QuotedAt    *time.Time  `json:"quoted_at"`
-	DecidedAt   *time.Time  `json:"decided_at"`
+	Currency    string     `json:"currency"`
+	ListTotal   int64      `json:"list_total_minor"`
+	QuotedTotal *int64     `json:"quoted_total_minor"`
+	ValidUntil  *string    `json:"valid_until"` // "YYYY-MM-DD"
+	Expired     bool       `json:"expired"`
+	CompanyNote string     `json:"company_note"`
+	LineCount   int        `json:"line_count"`
+	SubmittedAt time.Time  `json:"submitted_at"`
+	QuotedAt    *time.Time `json:"quoted_at"`
+	DecidedAt   *time.Time `json:"decided_at"`
 }
 
-func toDTO(r Request, detail bool) requestDTO {
+// requestDetailDTO is one request with its lines and charges. Embedding
+// requestDTO (no field name, just the type) promotes its fields, so
+// encoding/json writes them into the same flat object, like spreading an
+// object in JavaScript. Lines and charges have no omitempty: the frontend
+// requires both arrays, and an unquoted request has zero charges, which
+// omitempty would have dropped from the JSON entirely.
+type requestDetailDTO struct {
+	requestDTO
+	Lines   []lineDTO   `json:"lines"`
+	Charges []chargeDTO `json:"charges"`
+}
+
+// toSummaryDTO is the list-row shape: no lines or charges.
+func toSummaryDTO(r Request) requestDTO {
 	d := requestDTO{
 		ID: r.ID, SubmissionID: r.SubmissionID, DesignID: r.DesignID, Status: r.Status, Revision: r.Revision,
 		Final: IsFinal(r.Status), Currency: r.Currency, ListTotal: r.ListTotal, QuotedTotal: r.QuotedTotal,
@@ -123,24 +134,31 @@ func toDTO(r Request, detail bool) requestDTO {
 		s := r.ValidUntil.Format(time.DateOnly)
 		d.ValidUntil = &s
 	}
-	if detail {
-		d.Lines = make([]lineDTO, len(r.Lines))
-		for i, l := range r.Lines {
-			opts := l.Options
-			if opts == nil {
-				opts = map[string]string{}
-			}
-			d.Lines[i] = lineDTO{
-				ID: l.ID, ProductID: l.ProductID, VariantID: l.VariantID, ProductName: l.ProductName,
-				ProductSlug: l.ProductSlug, SKU: l.SKU, Options: opts,
-				Dimensions: dimensionsDTO{l.WidthMM, l.DepthMM, l.HeightMM},
-				Quantity:   l.Quantity, ListUnitPrice: l.ListUnit, QuotedUnitPrice: l.QuotedUnit, Note: l.Note,
-			}
+	return d
+}
+
+// toDetailDTO always builds non-nil slices: make(..., 0) encodes as [],
+// while a nil slice would encode as null.
+func toDetailDTO(r Request) requestDetailDTO {
+	d := requestDetailDTO{
+		requestDTO: toSummaryDTO(r),
+		Lines:      make([]lineDTO, len(r.Lines)),
+		Charges:    make([]chargeDTO, len(r.Charges)),
+	}
+	for i, l := range r.Lines {
+		opts := l.Options
+		if opts == nil {
+			opts = map[string]string{}
 		}
-		d.Charges = make([]chargeDTO, len(r.Charges))
-		for i, c := range r.Charges {
-			d.Charges[i] = chargeDTO(c)
+		d.Lines[i] = lineDTO{
+			ID: l.ID, ProductID: l.ProductID, VariantID: l.VariantID, ProductName: l.ProductName,
+			ProductSlug: l.ProductSlug, SKU: l.SKU, Options: opts,
+			Dimensions: dimensionsDTO{l.WidthMM, l.DepthMM, l.HeightMM},
+			Quantity:   l.Quantity, ListUnitPrice: l.ListUnit, QuotedUnitPrice: l.QuotedUnit, Note: l.Note,
 		}
+	}
+	for i, c := range r.Charges {
+		d.Charges[i] = chargeDTO(c)
 	}
 	return d
 }
@@ -194,7 +212,7 @@ func listParams(c *gin.Context) (int, bool) {
 func respondPage(c *gin.Context, pg Page) {
 	out := make([]requestDTO, len(pg.Requests))
 	for i, r := range pg.Requests {
-		out[i] = toDTO(r, false)
+		out[i] = toSummaryDTO(r)
 	}
 	var next *string
 	if pg.NextCursor != "" {
@@ -226,9 +244,9 @@ type skippedDTO struct {
 }
 
 func respondSubmission(c *gin.Context, sub Submission) {
-	reqs := make([]requestDTO, len(sub.Requests))
+	reqs := make([]requestDetailDTO, len(sub.Requests))
 	for i, r := range sub.Requests {
-		reqs[i] = toDTO(r, true)
+		reqs[i] = toDetailDTO(r)
 	}
 	skipped := make([]skippedDTO, len(sub.Skipped))
 	for i, s := range sub.Skipped {
@@ -314,7 +332,7 @@ func (h *Handler) customerGet(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toDTO(r, true))
+	c.JSON(http.StatusOK, toDetailDTO(r))
 }
 
 type acceptRequest struct {
@@ -339,7 +357,7 @@ func (h *Handler) accept(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toDTO(r, true))
+	c.JSON(http.StatusOK, toDetailDTO(r))
 }
 
 func (h *Handler) customerAction(action string) gin.HandlerFunc {
@@ -361,7 +379,7 @@ func (h *Handler) customerAction(action string) gin.HandlerFunc {
 			writeError(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, toDTO(r, true))
+		c.JSON(http.StatusOK, toDetailDTO(r))
 	}
 }
 
@@ -390,7 +408,7 @@ func (h *Handler) companyGet(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toDTO(r, true))
+	c.JSON(http.StatusOK, toDetailDTO(r))
 }
 
 func (h *Handler) review(c *gin.Context) {
@@ -403,7 +421,7 @@ func (h *Handler) review(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toDTO(r, true))
+	c.JSON(http.StatusOK, toDetailDTO(r))
 }
 
 type sendQuoteRequest struct {
@@ -441,7 +459,7 @@ func (h *Handler) sendQuote(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toDTO(r, true))
+	c.JSON(http.StatusOK, toDetailDTO(r))
 }
 
 type declineRequest struct {
@@ -462,7 +480,7 @@ func (h *Handler) decline(c *gin.Context) {
 		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, toDTO(r, true))
+	c.JSON(http.StatusOK, toDetailDTO(r))
 }
 
 // ---- errors -----------------------------------------------------------
